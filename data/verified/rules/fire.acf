@@ -1,0 +1,24 @@
+rule fire [physics, L0] {
+    spread:  when region.fire > 0 AND adjacent.has(Flammable),
+             prob = region.fire * adjacent.flammability * 0.01,
+             effect: adjacent.fire += 20
+
+    consume: when region.fire > 0,
+             rate = region.fire * 0.1,
+             effect: region.fuel -= rate * dt
+
+    quench:  when region.fire > 0 AND region.water > 0,
+             rate = region.water * 0.5,
+             effect: region.fire -= rate * dt
+
+    starve:  when region.fire > 0 AND region.fuel <= 0,
+             rate = 20,
+             effect: region.fire -= rate * dt
+}
+
+_provenance {
+    sources = [{ type = physics_simulation, id = fire_basics, confidence = 0.9 }]
+    model = seed
+    verified = true
+    reviewer = manu
+}

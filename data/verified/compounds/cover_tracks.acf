@@ -1,0 +1,21 @@
+plan cover_tracks [deception, reusable] {
+
+    params {
+        evidence = ObjectRef
+        elsewhere = SpatialRef
+    }
+
+    destroy: do Modify.Direct { target = $evidence, destroy = true }
+    alibi:   do Influence.Indirect { target = $witness, false = true }
+        prob = sigmoid(self.skills.deception - $witness.skills.observation)
+    divert:  do plant_false_evidence { target_location = $elsewhere }
+
+    done { NOT any(edge(*, self, knows_about) WHERE info == $evidence) }
+}
+
+_provenance {
+    sources = [{ type = narrative_pattern, id = coverup_archetype, confidence = 0.75 }]
+    model = seed
+    verified = true
+    reviewer = manu
+}

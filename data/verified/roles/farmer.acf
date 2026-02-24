@@ -1,0 +1,34 @@
+role farmer [economic, rural] {
+    active_when { daylight AND NOT holiday }
+
+    plow:    when season == spring AND field.state == fallow,
+             do Modify.Direct { target = $field, objects = [plow] },
+             priority = 10
+
+    water:   when field.water < 20 AND nearby.water_source,
+             do Transfer.Direct { source = $water_source, target = $field },
+             priority = 11
+
+    harvest: when field.crop.ready,
+             do Transfer.Direct { source = $field },
+             priority = 15
+
+    pest:    when field.pests > 0,
+             do Modify.Direct { target = $field.pests },
+             priority = 12
+
+    store:   when self.inventory.food > self.needs.food * 2,
+             do Transfer.Direct { item = food, to = $storehouse },
+             priority = 5
+
+    repair:  when $field.fence.condition < 30,
+             do Modify.Careful { target = $field.fence, objects = [wood] },
+             priority = 8
+}
+
+_provenance {
+    sources = [{ type = historical, id = medieval_farming, confidence = 0.8 }]
+    model = seed
+    verified = true
+    reviewer = manu
+}

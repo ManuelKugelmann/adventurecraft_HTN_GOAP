@@ -1,0 +1,29 @@
+rule metabolism [biology, L1] {
+    hunger:    rate = entity.weight * 0.01,
+               effect: entity.hunger += rate * dt
+
+    thirst:    rate = entity.weight * 0.02 * (1 + region.temperature * 0.01),
+               effect: entity.thirst += rate * dt
+
+    fatigue:   rate = entity.activity_level * 0.05,
+               effect: entity.fatigue += rate * dt
+
+    starve:    when entity.hunger > 90,
+               rate = 0.5,
+               effect: entity.health -= rate * dt
+
+    dehydrate: when entity.thirst > 90,
+               rate = 1.0,
+               effect: entity.health -= rate * dt
+
+    death:     when entity.health <= 0,
+               effect: entity => destroy,
+               effect: entity.location => create(corpse, { source = entity })
+}
+
+_provenance {
+    sources = [{ type = biology_model, id = metabolism_basics, confidence = 0.9 }]
+    model = seed
+    verified = true
+    reviewer = manu
+}

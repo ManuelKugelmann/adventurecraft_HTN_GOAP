@@ -1,0 +1,18 @@
+rule social_judgment [social, L3] {
+    disapprove: when observer.knowledge.contains($expectation)
+                AND observer.witnessed($actor, $action)
+                AND $action != $expectation.expected_behavior,
+                effect: edge(observer, $actor, social).reputation -= $expectation.weight
+
+    approve:    when observer.knowledge.contains($expectation)
+                AND observer.witnessed($actor, $action)
+                AND $action == $expectation.expected_behavior,
+                effect: edge(observer, $actor, social).reputation += $expectation.weight * 0.3
+}
+
+_provenance {
+    sources = [{ type = social_model, id = judgment_basics, confidence = 0.9 }]
+    model = seed
+    verified = true
+    reviewer = manu
+}

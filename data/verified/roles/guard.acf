@@ -1,0 +1,30 @@
+role guard [military] {
+    active_when { assigned_shift }
+
+    patrol:  when NOT region.threat_detected,
+             do Move.Direct { target = $patrol_route },
+             priority = 5
+
+    alert:   when region.threat_level > 50,
+             do Influence.Direct { target = $community, info = threat },
+             priority = 45
+
+    defend:  when region.threat_level > 70,
+             do Defense.Direct { target = $region },
+             priority = 50
+
+    arrest:  when witnessed(crime) AND self.skills.melee > perpetrator.skills.active_defense,
+             do Attack.Careful { target = $perpetrator, intensity = 0.4 },
+             priority = 40
+
+    report:  when witnessed(crime),
+             do Influence.Direct { target = $authority, info = $crime },
+             priority = 35
+}
+
+_provenance {
+    sources = [{ type = historical, id = medieval_guard_duty, confidence = 0.8 }]
+    model = seed
+    verified = true
+    reviewer = manu
+}

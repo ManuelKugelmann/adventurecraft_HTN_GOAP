@@ -1,0 +1,21 @@
+plan investigate [information, reusable] {
+
+    params {
+        target = EntityRef
+    }
+
+    survey: do Sense.Careful { target = $target }
+        prob = sigmoid(self.skills.observation - $target.modifier.stealth * 50)
+    dig:    do Sense.Indirect { target = $target.secrets }
+        prob = sigmoid(self.skills.research - $target.secrets.obscurity * 50)
+    verify: do Sense.Direct { target = $evidence }
+
+    done { self.knowledge.contains($target.secrets) }
+}
+
+_provenance {
+    sources = [{ type = narrative_pattern, id = investigation_archetype, confidence = 0.8 }]
+    model = seed
+    verified = true
+    reviewer = manu
+}

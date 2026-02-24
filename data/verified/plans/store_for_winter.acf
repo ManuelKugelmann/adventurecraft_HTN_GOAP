@@ -1,0 +1,28 @@
+plan economic.store_for_winter [economic, survival] {
+
+    params {
+        storehouse = SpatialRef
+    }
+
+    method default {
+        when { season == autumn }
+        priority = self.drives.survival * 0.8
+
+        assess:    do Sense.Indirect { target = $storehouse }
+        gather:    do Transfer.Direct { source = $fields }
+            prob = sigmoid(self.skills.gathering - 10)
+        process:   do Modify.Careful { target = $food, objects = [salt, jars] }
+        store:     do Transfer.Direct { item = $food, to = $storehouse }
+        check:     wait $storehouse.food > winter_duration * self.consumption_rate
+    }
+
+    done { self.supplies > winter_duration * self.consumption_rate }
+    fail { season == winter AND self.supplies < winter_duration * self.consumption_rate * 0.5 }
+}
+
+_provenance {
+    sources = [{ type = historical, id = seasonal_food_storage, confidence = 0.85 }]
+    model = seed
+    verified = true
+    reviewer = manu
+}
