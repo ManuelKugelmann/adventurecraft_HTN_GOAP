@@ -1,0 +1,66 @@
+plan neutralize_security [criminal, access] {
+
+    params {
+        target = ObjectRef
+    }
+
+    # Disable alarm systems, distract guards, bypass cameras.
+    # Referenced by heist methods that need security cleared before breach.
+
+    method disable_alarm {
+        needs { self.knows(properties_of($target)) AND accessible(self, $tools) }
+        locate:    do Sense.Direct { target = $target }
+        cut:       do Modify.Direct { target = $target, destroy = true }
+        outcomes {
+            NOT $target.active, prob = 0.85
+            time += 5
+        }
+    }
+
+    method insider_disable {
+        needs { accessible(self, $insider) AND co_located($insider, $target) }
+        instruct:  do influence_person { target = $insider, intent = disable_security }
+        outcomes {
+            NOT $target.active, prob = 0.9
+            time += 2
+        }
+    }
+
+    method distract_guard {
+        needs { $target.has(Person) }
+        create_diversion: do Influence.Indirect { target = $target, intent = lure_away }
+        outcomes {
+            NOT co_located($target, $target.post), prob = 0.7
+            time += 10
+        }
+    }
+
+    method jam_signal {
+        needs { accessible(self, $jammer) AND $target.has(Electronic) }
+        activate:  do Modify.Indirect { target = $target, equipment = $jammer }
+        outcomes {
+            NOT $target.active, prob = 0.8
+            time += 1
+        }
+    }
+
+    method avoid {
+        needs { self.knows(schedule_of($target)) AND self.Skills.stealth > 20 }
+        wait:      do Sense.Indirect { target = $target }
+        time_it:   do Move.Direct { destination = $target.blind_spot, secrecy = 0.9 }
+        outcomes {
+            NOT visible(self, $target), prob = sigmoid(self.Skills.stealth * 0.02)
+            time += 15
+        }
+    }
+}
+
+_provenance {
+    sources = [
+        { type = design_pattern, id = security_defeat_methods, confidence = 0.8 },
+        { type = research, id = sandia_hmcd_heist_study, confidence = 0.85 }
+    ]
+    model = seed
+    verified = true
+    reviewer = manu
+}

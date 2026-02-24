@@ -1,0 +1,58 @@
+plan influence_person [social, universal] {
+
+    params {
+        target = EntityRef
+        intent = ObjectRef
+    }
+
+    method persuade {
+        needs { co_located(self, $target) AND NOT hostile($target, self) }
+        appeal: do Influence.Direct { target = $target, intent = $intent }
+        outcomes {
+            $target.willing($intent), prob = sigmoid(self.Skills.persuasion * 0.02 + edge(self, $target, familiarity) * 0.5)
+            edge(self, $target, familiarity) += 0.05
+            time += 10
+        }
+    }
+
+    method bribe {
+        needs { co_located(self, $target) AND affordable(self, $price) }
+        offer: do Transfer.Indirect { target = $target, item = $payment, intent = $intent }
+        outcomes {
+            $target.willing($intent), prob = 0.75
+            self.inventory.currency -= $price
+            edge(self, $target, familiarity) += 0.02
+            time += 5
+        }
+    }
+
+    method threaten {
+        needs {
+            co_located(self, $target)
+            AND self.combat_power > $target.combat_power * 0.8
+        }
+        intimidate: do Influence.Direct { target = $target, intent = $intent, method = threat }
+        outcomes {
+            $target.willing($intent), prob = sigmoid(self.combat_power / $target.combat_power - 0.5)
+            edge(self, $target, disposition) -= 0.3
+            time += 5
+        }
+    }
+
+    method deceive {
+        needs { co_located(self, $target) AND capable(self, deception) }
+        spin: do Influence.Indirect { target = $target, intent = $intent, false = true }
+        outcomes {
+            $target.willing($intent), prob = sigmoid(self.Skills.deception * 0.02 - $target.Skills.observation * 0.01)
+            edge(self, $target, disposition) -= 0.4
+            time += 10
+        }
+    }
+}
+
+_provenance {
+    sources = [{ type = design_pattern, id = social_influence, confidence = 0.85 }]
+    model = seed
+    verified = true
+    reviewer = manu
+}

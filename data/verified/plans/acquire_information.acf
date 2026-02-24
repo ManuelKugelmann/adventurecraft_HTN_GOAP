@@ -1,0 +1,72 @@
+plan acquire_information [information, universal] {
+
+    params {
+        about = EntityRef
+    }
+
+    method ask {
+        needs {
+            self.knows(location_of($knower))
+            AND self.knows(properties_of($knower))
+            AND NOT hostile($knower, self)
+        }
+        approach: do move_to { destination = $knower.location }
+        query:    do Influence.Direct { target = $knower, intent = share_knowledge, about = $about }
+        outcomes {
+            self.knows($about), prob = 0.7
+            edge(self, $knower, familiarity) += 0.05
+            time += distance(self, $knower.location) / self.Movement.Speed + 5
+        }
+    }
+
+    method bribe {
+        needs {
+            self.knows(location_of($knower))
+            AND affordable(self, $price)
+        }
+        approach: do move_to { destination = $knower.location }
+        offer:    do influence_person { target = $knower, intent = share_knowledge }
+        outcomes {
+            self.knows($about), prob = 0.8
+            self.inventory.currency -= $price
+            time += distance(self, $knower.location) / self.Movement.Speed + 10
+        }
+    }
+
+    method observe {
+        needs { self.knows(location_of($about)) }
+        travel:  do move_to { destination = $about.location }
+        watch:   do Sense.Indirect { target = $about }
+        outcomes {
+            self.knows(properties_of($about)), prob = sigmoid(self.Skills.observation * 0.02)
+            time += distance(self, $about.location) / self.Movement.Speed + 60
+        }
+    }
+
+    method research {
+        needs { accessible(self, $library) AND $library.has(Knowledge) }
+        study: do Sense.Structured { target = $library, about = $about }
+        outcomes {
+            self.knows($about), prob = sigmoid(self.Skills.research * 0.02)
+            time += 120
+        }
+    }
+
+    method explore {
+        needs { }
+        wander: do Move.Direct { destination = self.location.adjacent }
+        look:   do Sense.Indirect { target = self.location }
+        outcomes {
+            self.knows($about), prob = 0.3
+            self.knows(nearby(self.location, 100)), prob = 0.7
+            time += 480
+        }
+    }
+}
+
+_provenance {
+    sources = [{ type = design_pattern, id = information_acquisition, confidence = 0.85 }]
+    model = seed
+    verified = true
+    reviewer = manu
+}

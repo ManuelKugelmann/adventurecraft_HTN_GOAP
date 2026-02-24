@@ -1,0 +1,63 @@
+plan acquire_access [universal] {
+
+    params {
+        node = EntityRef
+    }
+
+    method pick_up {
+        needs { $node.has(Physical) AND $node.has(Portable) AND co_located(self, $node) }
+        step: do Transfer.Direct { source = $node.location }
+        outcomes {
+            accessible(self, $node), prob = 0.95
+            time += 1
+        }
+    }
+
+    method go_there {
+        needs { $node.has(Region) }
+        step: do move_to { destination = $node }
+        outcomes {
+            accessible(self, $node), prob = 0.9
+            time += distance(self, $node) / self.Movement.Speed
+        }
+    }
+
+    method go_and_pick_up {
+        needs {
+            $node.has(Physical) AND $node.has(Portable)
+            AND NOT co_located(self, $node)
+            AND self.knows(location_of($node))
+        }
+        travel: do move_to { destination = $node.location }
+        take:   do Transfer.Direct { source = $node.location }
+        outcomes {
+            accessible(self, $node), prob = 0.85
+            time += distance(self, $node.location) / self.Movement.Speed + 1
+        }
+    }
+
+    method learn {
+        needs { $node.has(Knowledge) }
+        step: do acquire_information { about = $node }
+        outcomes {
+            accessible(self, $node), prob = 0.7
+            time += 30
+        }
+    }
+
+    method meet {
+        needs { $node.has(Person) AND self.knows(location_of($node)) }
+        step: do move_to { destination = $node.location }
+        outcomes {
+            accessible(self, $node), prob = 0.8
+            time += distance(self, $node.location) / self.Movement.Speed
+        }
+    }
+}
+
+_provenance {
+    sources = [{ type = design_pattern, id = universal_access_dispatcher, confidence = 0.9 }]
+    model = seed
+    verified = true
+    reviewer = manu
+}
