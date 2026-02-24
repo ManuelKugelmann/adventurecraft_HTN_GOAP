@@ -1,0 +1,197 @@
+# ── Utility Functions ─────────────────────────────────────────────
+#
+# Catalog of predicate and query functions used in needs { } blocks
+# and estimates { } blocks across plans, roles, and rules.
+#
+# Categories:
+#   ENGINE    — requires engine implementation (spatial, pathfinding, physics)
+#   DERIVED   — resolves to trait queries + simple math
+#   SUGAR     — shorthand for common trait checks
+#   PLAN      — resolves to sub-plan evaluation (planner must attempt)
+#
+# Status:
+#   core      — required for MVP, must be engine-implemented
+#   planned   — needed, implementation path known
+#   candidate — useful but may be cut or folded into another function
+#
+
+# ── ENGINE: require native implementation ─────────────────────────
+# These touch runtime systems that can't be expressed as plan decomposition.
+
+function distance(a, b) [ENGINE, core] {
+    # Spatial distance between two nodes
+    # Used in: needs, estimates
+    returns: float
+    notes: pathfinding-aware, not just euclidean
+}
+
+function reachable(a, b) [ENGINE, core] {
+    # Path exists from a to b (terrain, doors, water)
+    returns: bool
+    notes: cheaper than distance, early-out
+}
+
+function visible(observer, target) [ENGINE, core] {
+    # Line of sight + perception check
+    returns: bool
+    depends: observer.Skills.observation, Lighting, Obscurity
+}
+
+function nearby(center, radius) [ENGINE, core] {
+    # All nodes within radius of center
+    returns: set<node>
+    notes: spatial query, used for area effects and awareness
+}
+
+function co_located(a, b) [ENGINE, core] {
+    # Same region or container
+    returns: bool
+    notes: cheaper than distance < threshold
+}
+
+# ── DERIVED: resolve to trait queries + math ──────────────────────
+# Can be evaluated from node data without engine calls.
+
+function accessible(self, node) [DERIVED, core] {
+    # Can self interact with node right now
+    # The universal precondition — what acquire_access resolves
+    returns: bool
+    resolves_to:
+        node.has(Physical) AND node.has(Portable) => contains(self.inventory, node)
+        node.has(Physical) AND NOT node.has(Portable) => co_located(self, node)
+        node.has(Region) => self.location == node
+        node.has(Knowledge) => contains(self.memory, node)
+        node.has(Person) => co_located(self, node)
+}
+
+function affordable(self, cost) [DERIVED, planned] {
+    # Self has enough currency/resources to cover cost
+    returns: bool
+    resolves_to: self.inventory.currency >= cost
+    notes: may expand to barter valuation
+}
+
+function hostile(a, b) [DERIVED, core] {
+    # a considers b an enemy
+    returns: bool
+    resolves_to: edge(a, b, disposition) < -0.5
+}
+
+function allied(a, b) [DERIVED, planned] {
+    # a considers b a friend or ally
+    returns: bool
+    resolves_to: edge(a, b, disposition) > 0.5
+}
+
+function owns(owner, node) [DERIVED, planned] {
+    # Ownership relationship exists
+    returns: bool
+    resolves_to: edge(owner, node, ownership) > 0
+}
+
+function alive(node) [DERIVED, core] {
+    # Node has Vitals and health above zero
+    returns: bool
+    resolves_to: node.has(Vitals) AND node.Vitals.Health > 0
+}
+
+function capable(self, skill) [DERIVED, planned] {
+    # Self has nonzero skill level
+    returns: bool
+    resolves_to: self.Skills.get(skill) > 0
+}
+
+function authority_over(a, b) [DERIVED, planned] {
+    # a has authority over b (derived from delegation chain)
+    returns: bool
+    resolves_to: edge(a, b, authority) > 0 OR edge(a, b.group, authority) > 0
+    notes: never stored, always derived from relationships
+}
+
+# ── SUGAR: shorthand for trait checks ─────────────────────────────
+# Pure convenience — collapse to node.has(Trait) or field checks.
+
+function portable(node) [SUGAR, planned] {
+    returns: bool
+    resolves_to: node.has(Portable) OR (node.has(Physical) AND node.weight < 30)
+}
+
+function locked(node) [SUGAR, planned] {
+    returns: bool
+    resolves_to: node.has(Locked) AND node.Locked.active
+}
+
+function burning(node) [SUGAR, planned] {
+    returns: bool
+    resolves_to: node.has(Burning) AND node.Burning.intensity > 0
+}
+
+function submerged(node) [SUGAR, planned] {
+    returns: bool
+    resolves_to: node.has(Hydrology) AND node.Hydrology.depth > 1.0
+}
+
+function concealed(node) [SUGAR, candidate] {
+    returns: bool
+    resolves_to: node.has(Concealed) AND node.Concealed.active
+}
+
+function container_has_space(container, item) [SUGAR, candidate] {
+    returns: bool
+    resolves_to: container.has(Container) AND container.Container.current < container.Container.capacity
+}
+
+# ── PLAN: resolve to sub-plan feasibility ─────────────────────────
+# These are checked by the planner attempting decomposition.
+# True if at least one method passes its needs.
+
+function can_reach(self, destination) [PLAN, core] {
+    # At least one move_to method is feasible
+    returns: bool
+    resolves_to: exists method in move_to where method.needs(self, destination)
+}
+
+function can_acquire(self, item) [PLAN, planned] {
+    # At least one acquire_item method is feasible
+    returns: bool
+    resolves_to: exists method in acquire_item where method.needs(self, item)
+}
+
+function can_learn(self, info) [PLAN, planned] {
+    # At least one acquire_information method is feasible
+    returns: bool
+    resolves_to: exists method in acquire_information where method.needs(self, info)
+}
+
+function can_enter(self, location) [PLAN, candidate] {
+    # At least one gain_entry method is feasible
+    returns: bool
+    resolves_to: exists method in gain_entry where method.needs(self, location)
+}
+
+# ── ESTIMATE HELPERS: used in estimates { } blocks ────────────────
+# Return numeric values for plan ranking, not boolean.
+
+function travel_time(self, destination) [DERIVED, planned] {
+    returns: float
+    resolves_to: distance(self, destination) / self.Movement.Speed
+    notes: base estimate, methods refine with mount speed etc.
+}
+
+function threat_level(location) [DERIVED, planned] {
+    returns: float
+    resolves_to: count(location, hostile) * avg(location.hostiles.combat_power)
+    notes: rough heuristic for risk estimation
+}
+
+function fatigue_cost(self, action_type, duration) [DERIVED, candidate] {
+    returns: float
+    resolves_to: duration * self.Physical.Weight * action_type.exertion_rate
+}
+
+_provenance {
+    type: design_catalog
+    status: draft
+    purpose: collect utility function candidates for needs/estimates evaluation
+    categories: ENGINE requires native code, DERIVED is data-only, SUGAR is shorthand, PLAN is planner query
+}
