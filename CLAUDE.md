@@ -75,18 +75,16 @@ plan move_to.walk [movement] {
 }
 
 plan criminal.heist [criminal, economic] {
-    needs { accessible(self, $tools) AND accessible(self, $target_location) }
+    needs { accessible(self, $tools) AND self.knows(layout_of($target_location)) }
     method classic {
-        needs { crew.weight >= 3 }
-        recon:   do Sense.Structured { target = $vault, secrecy = 0.8 }
-        CRACK:   do Modify.Direct { target = $vault_door }
-            prob = sigmoid(crew.skills.crafting - $vault.security)
-            fail = ABORT
-        grab:    do Transfer.Direct { source = $vault, secrecy = 0.9 }
-        ABORT:   do Move.Structured { destination = $safehouse, secrecy = 0.9 }
+        needs { count(self, AlliedWith, willing = true) >= 3 }
+        intel:   do acquire_information { about = $vault }
+        crack:   do gain_entry { target = $vault_door }
+        grab:    do acquire_item { source = $vault }
+        escape:  do move_to { destination = $safehouse }
     }
     outcomes {
-        self.inventory.value += $vault.value * 0.5, prob = 0.6
+        accessible(self, $vault.contents), prob = 0.6
         visible(self, $vault.guards), prob = 0.4
         time += 120
     }
@@ -107,6 +105,7 @@ Two sections per plan (and per method):
   The planner chains on outcomes and weighs all of them against the agent's drives.
 
 Top-level plans compose sub-plans. Leaf plans contain concrete `do Action.Approach` steps.
+Methods may mix sub-plan references and concrete actions.
 The planner auto-inserts sub-plans when `needs` are unmet (e.g. missing item, missing knowledge, missing access).
 
 ## Expression Language
@@ -186,5 +185,5 @@ docs/            spec, summary, source catalog
 - Plans use `needs` (preconditions) and `outcomes` (postconditions), NOT `precond`, `done`, or `estimates`
 - `needs` are boolean hard filters checked against agent belief state
 - `outcomes` are probabilistic and include goal, side effects, and costs (including `time +=`)
-- Top-level plans compose sub-plans; only leaves have concrete `do` steps
+- Top-level plans compose sub-plans; leaves have concrete `do` steps; methods may mix both
 - Utility functions cataloged in `schema/utility_functions.acf`

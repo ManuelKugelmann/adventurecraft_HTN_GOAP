@@ -61,7 +61,7 @@ plan attack.ambush [combat] {
         $target.Vitals.Health -= damage(self, $target), prob = 0.8
         visible(self, $target.allies), prob = 0.4
         self.equipment.weapon.Condition -= 5
-        time += travel_time(self, $ambush_point) + schedule_variance($target)
+        time += distance(self, $ambush_point) / self.Movement.Speed
     }
 }
 ```
@@ -73,12 +73,13 @@ and chains further backwards.
 ## Hierarchical Composition
 
 Top-level plans are pure composition — just sub-plan references, no concrete
-actions. Leaf plans contain actual `do Action.Approach` steps.
+actions. Leaf plans contain actual `do Action.Approach` steps. Methods may
+mix sub-plan references and concrete actions.
 
 ```
 criminal.heist                        ← pure composition
   acquire_information { $target }     ← sub-plan
-    acquire_information.bribe         ← mixed
+    acquire_information.bribe         ← mixed (sub-plans + actions)
       influence_person                ← sub-plan
         influence_person.persuade     ← leaf (concrete actions)
     acquire_information.observe       ← leaf
@@ -167,7 +168,7 @@ plan acquire_information.explore [universal] {
     outcomes {
         self.knows($about), prob = 0.3
         self.knows(nearby(self.location, *)), prob = 0.7
-        time += high
+        time += 480
     }
 }
 ```

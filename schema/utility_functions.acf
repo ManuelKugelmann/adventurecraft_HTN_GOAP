@@ -54,44 +54,109 @@ function co_located(a, b) [ENGINE, core] {
     notes: cheaper than distance < threshold
 }
 
+function edge(a, b, axis) [ENGINE, core] {
+    # Relationship value between two nodes on a given axis
+    # Axes: debt, reputation, affection, familiarity, authority, ownership, disposition
+    returns: float
+    notes: returns 0 if no relationship exists
+}
+
 # ── KNOWLEDGE: agent belief state ─────────────────────────────────
 # Checked in needs { }. The agent plans based on what it knows,
 # not what is true. Stale/wrong knowledge leads to plan failure,
 # which is correct behavior (agent was misinformed).
+#
+# Call syntax: self.knows(fact)
+# Engine signature: knows(agent, fact)
 
-function self.knows(fact) [KNOWLEDGE, core] {
+function knows(agent, fact) [KNOWLEDGE, core] {
     # Agent has this fact in belief state
     returns: bool
     notes: the fundamental knowledge check, gates almost everything
 }
 
-# Knowledge types — what agents need to know to plan:
+# Knowledge types — structured facts that agents store and query.
+# Each is a fact constructor passed to knows():
+#   self.knows(route_to($destination, walking))
+#   self.knows(location_of($item))
 
-# route_to(dest, mode)        navigation data, gates all movement
-# location_of(node)           where something is, gates acquire_access
-# properties_of(node)         what something is, gates method selection
-# price_of(item, market)      trade value, gates economic plans
-# weakness_of(target)         combat/social weak points, gates efficient action
-# schedule_of(person)         timing patterns, gates interception/meeting
-# recipe_for(item)            crafting knowledge, gates Modify.Structured
-# members_of(group)           who belongs, gates social/political plans
-# layout_of(location)         interior structure, gates navigation inside
-# reputation_of(person)       public standing, gates social approach selection
+function route_to(destination, mode) [KNOWLEDGE, core] {
+    # Navigation data for reaching destination via mode (walking, riding, sailing, ...)
+    # Gates: all movement plans
+    returns: fact
+}
+
+function location_of(node) [KNOWLEDGE, core] {
+    # Where a node currently is
+    # Gates: acquire_access, move_to
+    returns: fact
+}
+
+function properties_of(node) [KNOWLEDGE, planned] {
+    # What a node is, its traits and state
+    # Gates: method selection
+    returns: fact
+}
+
+function price_of(item, market) [KNOWLEDGE, planned] {
+    # Trade value at a specific market
+    # Gates: economic plans (buy, sell, trade)
+    returns: fact
+}
+
+function weakness_of(target) [KNOWLEDGE, planned] {
+    # Combat or social weak points
+    # Gates: efficient attack/influence method selection
+    returns: fact
+}
+
+function schedule_of(person) [KNOWLEDGE, planned] {
+    # Timing patterns and routines
+    # Gates: interception, meeting, ambush
+    returns: fact
+}
+
+function recipe_for(item) [KNOWLEDGE, planned] {
+    # Crafting instructions
+    # Gates: Modify.Structured
+    returns: fact
+}
+
+function members_of(group) [KNOWLEDGE, candidate] {
+    # Who belongs to a group
+    # Gates: social/political plans
+    returns: fact
+}
+
+function layout_of(location) [KNOWLEDGE, planned] {
+    # Interior structure and navigation within a location
+    # Gates: navigation inside buildings, dungeons, etc.
+    returns: fact
+}
+
+function reputation_of(person) [KNOWLEDGE, candidate] {
+    # Public standing of a person (what agent has heard)
+    # Gates: social approach selection
+    returns: fact
+}
 
 # ── DERIVED: resolve to trait queries + math ──────────────────────
 # Can be evaluated from node data without engine calls.
-# These check against agent belief state where applicable.
+# Where these reference spatial state (co_located, distance), the
+# agent's belief state is checked — not world truth. At execution
+# time the engine validates against world truth; mismatch = plan failure.
 
 function accessible(self, node) [DERIVED, core] {
-    # Can self interact with node right now (from agent's knowledge)
+    # Can self interact with node right now (from agent's belief state)
     # The universal precondition — what acquire_access resolves
     returns: bool
     resolves_to:
         node.has(Physical) AND node.has(Portable) => contains(self.inventory, node)
         node.has(Physical) AND NOT node.has(Portable) => co_located(self, node)
         node.has(Region) => self.location == node
-        node.has(Knowledge) => self.knows(node)
+        node.has(Knowledge) => knows(self, node)
         node.has(Person) => co_located(self, node)
+    notes: co_located checks use agent belief state, engine validates at execution
 }
 
 function affordable(self, cost) [DERIVED, planned] {
@@ -143,6 +208,13 @@ function threat_level(location) [DERIVED, planned] {
     returns: float
     resolves_to: count(location, hostile) * avg(location.hostiles.combat_power)
     notes: used in outcomes as side-effect cost
+}
+
+function travel_time(self, destination) [DERIVED, planned] {
+    # Estimated travel duration
+    returns: float
+    resolves_to: distance(self, destination) / self.Movement.Speed
+    notes: base estimate, methods refine with mount speed etc.
 }
 
 # ── SUGAR: shorthand for trait checks ─────────────────────────────
