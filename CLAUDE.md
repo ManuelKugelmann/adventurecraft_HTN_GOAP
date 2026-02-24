@@ -242,8 +242,28 @@ docs/            spec, summary, source catalog
   "How does an agent get somewhere?" → walk, ride, sail, sneak
   "How does an agent learn something?" → ask, observe, research, bribe, explore
 
+### Counters and adversary prediction
+
+- Counter blocks on plans are **cached predictions** — precomputed "standard response"
+  to observable threat signatures. Fast lookup for the planner.
+- Counters are NOT the only way adversaries respond. They cover archetypal patterns.
+  Agents with deeper knowledge can predict novel responses beyond the catalog.
+- Three tiers: Tier 0 (counter lookup, O(1)), Tier 1 (role-based prediction, depth 1),
+  Tier 2 (adversary plan simulation, depth 2). Simple agents stop at Tier 0.
+- Counter conditions ONLY reference observable state (pos, weight, faction, garrison,
+  walls, equipped, visible actions, terrain). NEVER: drives, plans, knowledge, mood, skills.
+- Adversary behavioral responses (guard raises alarm, authority investigates) are NOT
+  world rules. They are role-driven decisions. The planner predicts them from knowledge
+  of the adversary's role and drives.
+- Evidence is just items with Physical + Decayable traits. No special forensics system.
+- Authorities/laws/mob = implicit contracts. A warrant is Influence.Structured.
+- Inception depth limit: max 2 levels. No infinite regress.
+
 ### World rules
 
 - Every adversarial interaction needs a predictable resolution mechanism.
 - Rules are cataloged in `schema/world_rules.acf` with implementation status.
 - Categories: PHYSICS (L0), BIOLOGY (L1), DETECTION (L3), COMBAT (L3), SOCIAL (L3), ECONOMIC (L4).
+- World rules are physics/perception — things that HAPPEN regardless of intent
+  (fire spreads, evidence decays, detection resolves). NOT adversary choices.
+- Adversary choices (raise alarm, investigate, pursue) are role behaviors, not world rules.

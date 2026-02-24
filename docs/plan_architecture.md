@@ -390,6 +390,109 @@ link: "will the guard pursue?" The planner reads the guard's role, sees
 For a different adversary (distracted merchant, sleeping drunk), the planner
 might skip that link entirely.
 
+## Counters: Cached Predictions, Not Ceilings
+
+Counter blocks annotated on plans are **precomputed adversary response
+patterns** — the "standard answer" to a recognized threat signature.
+They exist for fast planning, not as hard constraints on behavior.
+
+### Three tiers of adversary prediction
+
+```
+Tier 0: Counter lookup (cheapest)
+  "troops massing → counter says fortify"
+  No reasoning. Pattern match on observables, retrieve cached response.
+  Any agent can do this. O(1).
+
+Tier 1: Role-based prediction (medium)
+  "guard detected me → guard role says alert(45) + defend(50) →
+   guard WILL pursue → capture_risk resolves whether they catch me"
+  Read adversary's role from knowledge. Estimate which behaviors fire.
+  Resolve outcomes against self via resolution functions. Depth 1.
+
+Tier 2: Adversary plan simulation (expensive)
+  "their leader owes me a debt and their morale is low →
+   standard response is fortify, but I think I can turn the guard
+   with bribery + leverage → novel plan not in any counter catalog"
+  Model adversary drives, relationships, constraints.
+  Run shallow adversary planner (depth 2). Discover emergent responses
+  that weren't pre-annotated. Requires deep knowledge of adversary.
+```
+
+Simple agents (low skills, little knowledge) stop at Tier 0. They follow
+the counter catalog — "if X then Y." This is adequate for most situations
+because the counter catalog covers archetypal threats and responses.
+
+Smarter agents go deeper. A seasoned general reads the enemy commander's
+disposition, morale, supply situation, and predicts that they'll deviate
+from the standard response. A master thief notices the guard is drunk
+and skips the "flee on detection" response in favor of "talk my way out."
+
+### Counters enable quick planning, not limit it
+
+Counter annotations serve three purposes:
+
+1. **Fast path for the planner**: Before running adversary simulation,
+   check if a counter matches the current situation. If yes, use the
+   cached response estimate. Cheap.
+
+2. **Baseline for comparison**: When the planner does run a deeper
+   simulation, the counter provides the expected/standard response.
+   Deviations from the counter are interesting — they indicate the
+   adversary might do something unexpected.
+
+3. **Observable grounding**: Counters are defined over observable state
+   only (`pos`, `weight`, `faction`, `garrison`, `walls`, visible actions).
+   They never reference hidden state (`drives`, `knowledge`, `plans`).
+   This is correct — you can only counter what you can see.
+
+### Emergence beyond the catalog
+
+The counter catalog is incomplete by design. It covers common
+threat/response pairs, not every possible situation. Novel responses
+emerge when:
+
+- An adversary's drives override their role (starving guard abandons post)
+- Relationships create unexpected alliances or betrayals
+- Environmental conditions invalidate standard responses (bridge collapsed,
+  flood blocks retreat)
+- An agent combines standard plans in a non-standard way
+
+The planner should treat counters as the default prediction, then check
+whether the specific adversary's state (drives, relationships, knowledge)
+suggests a different response. This is the Tier 1 → Tier 2 transition.
+
+```acf
+# Counter annotation: the standard response to a heist threat
+counter threat.vault_breach {
+    lockdown when $vault.alarm.active AND garrison > 3
+    pursuit  when visible($intruder, $guards) AND NOT $intruder.co_located($vault)
+}
+
+# But at runtime, the planner might discover:
+#   - the guard captain was bribed (behavioral link overridden)
+#   - the garrison is undermanned due to festival (counter precondition fails)
+#   - the intruder is the lord's son (arrest behavior conflicts with duty to lord)
+# These are emergent — no counter annotation needed. The planner handles them
+# by reading the adversary's actual state and running Tier 1/2 prediction.
+```
+
+### Inception depth limit
+
+All tiers respect the depth limit:
+
+- **Tier 0**: No depth (lookup, not simulation)
+- **Tier 1**: Depth 1 — "I predict their behavior from their role"
+- **Tier 2**: Depth 2 — "I predict their plan, including their prediction
+  of my most likely response"
+
+No agent goes to depth 3+. The marginal value of deeper inception drops
+fast, and the computational cost rises exponentially. A master strategist
+at depth 2 thinks: "if I feint left, they'll expect me to go right, so
+I'll actually go left." They do NOT think: "if I feint left, they'll
+think I think they'll expect me to go right, so they'll..." That's
+infinite regress, not intelligence.
+
 ## Open Questions
 
 - How deep should knowledge chaining go before bottoming out at explore?
@@ -397,4 +500,4 @@ might skip that link entirely.
 - How does knowledge staleness work? (fact was true when learned, no longer is)
 - Should `outcomes` on composite plans be declared or computed from sub-plans?
 - How do agents share knowledge? (telling, teaching, written records)
-- Counter-plan generation: how do outcomes inform threat signatures?
+- How should agent intelligence tier (Tier 0/1/2) be determined? Skill-based? Trait?

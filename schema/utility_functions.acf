@@ -186,7 +186,11 @@ function edge(a, b, axis) [ENGINE, core] {
 # A law is a shared contract. Enforcement = role behavior of authorized agents.
 #
 # Plan outcomes express only resolution links. The planner fills in
-# behavioral links at runtime by consulting its knowledge of the adversary.
+# behavioral links at runtime via three tiers:
+#   Tier 0: Counter lookup — cached predictions annotated on plans (fast)
+#   Tier 1: Role prediction — read adversary role from knowledge (depth 1)
+#   Tier 2: Plan simulation — model adversary drives/plans (depth 2, max)
+# Simple agents stop at Tier 0. Smarter agents go deeper.
 # See docs/plan_architecture.md "Adversary Response Chains".
 
 function identification_risk(actor, observer) [RESOLUTION, planned] {
