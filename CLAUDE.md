@@ -46,6 +46,12 @@ python tools/coverage.py data/verified/
 pytest tools/tests/
 ```
 
+## Workflow
+
+- Do NOT validate, commit, and push after every small change. Batch changes.
+  Only commit at meaningful checkpoints or when explicitly asked.
+- Design discussions and iterative edits should accumulate before committing.
+
 ## File Format: `.acf`
 
 Three declaration types:
@@ -272,6 +278,11 @@ docs/            spec, summary, source catalog
 - `performed($subject, action_type, params)` queries sim history for observed actions.
   The action exists in ground truth; `self.knows(performed(...))` returns true only if
   the agent's perception filter passes for that event.
+- **Active suspect plans override filtered ground truth.** When a guard runs
+  `suspect.heist { subject = $thief }`, the guard's knowledge/model of `$thief` now
+  includes the active suspicion. This is a relevant override — the guard has an active
+  hypothesis about the subject layered on top of neutral observation history.
+  Other agents who model the guard can see this: "the guard suspects that person."
 - `suspected($subject, plan_id)` is a knowledge fact created when a suspect plan
   reports to authority. Authorities receiving this may activate investigation behaviors.
 
