@@ -270,6 +270,14 @@ function affordable(self, cost) [DERIVED, planned] {
     notes: may expand to barter valuation
 }
 
+function pursued(agent) [DERIVED, core] {
+    # Agent is under active pursuit by one or more hostiles.
+    # True if any hostile entity is alert AND moving toward agent.
+    returns: bool
+    resolves_to: any(nearby(agent, 200), hostile AND alert AND tracking(agent))
+    notes: plans use NOT pursued(self) as goal state for escape
+}
+
 function hostile(a, b) [DERIVED, core] {
     # a considers b an enemy
     returns: bool

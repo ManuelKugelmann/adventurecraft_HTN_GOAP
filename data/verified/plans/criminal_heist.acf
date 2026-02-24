@@ -36,7 +36,11 @@ plan criminal.heist [criminal, economic] {
         clean:           do cover_tracks { evidence = $forensic_traces }
 
         outcomes {
+            # Goal: have loot, be free, not pursued
             accessible(self, $vault.contents), prob = 0.6
+            NOT co_located(self, $target_location), prob = 0.9
+            NOT pursued(self), prob = 0.7
+            # Risks
             visible(self, $vault.guards), prob = detection_risk(self, $vault.guards)
             edge(self, law_enforcement, disposition) -= 0.3
             time += 120
@@ -71,7 +75,11 @@ plan criminal.heist [criminal, economic] {
         vanish:          do move_to { destination = $safehouse }
 
         outcomes {
+            # Goal: have loot, vanish without a trace
             accessible(self, $vault.contents), prob = 0.5
+            NOT co_located(self, $target_location), prob = 0.85
+            NOT pursued(self), prob = 1 - detection_risk(self, $vault.guards)
+            # Risks
             visible(self, $vault.guards), prob = detection_risk(self, $vault.guards)
             self.Vitals.Stamina -= 30
             time += 90
@@ -109,7 +117,11 @@ plan criminal.heist [criminal, economic] {
         cover:           do cover_tracks { evidence = $access_logs }
 
         outcomes {
+            # Goal: walk out with loot, no one the wiser (until later)
             accessible(self, $vault.contents), prob = 0.7
+            NOT co_located(self, $target_location), prob = 0.95
+            NOT pursued(self), prob = 0.85
+            # Risks: insider is the weak link post-heist
             edge($insider, law_enforcement, disposition) -= 0.5
             edge(self, $insider, disposition) -= 0.2
             time += 60
@@ -139,8 +151,13 @@ plan criminal.heist [criminal, economic] {
         flee:            do move_to { destination = $safehouse }
 
         outcomes {
+            # Goal: grab loot fast. Escape is the hard part.
             accessible(self, $vault.contents), prob = 0.75
+            NOT co_located(self, $target_location), prob = 0.85
+            NOT pursued(self), prob = chase_chance(self, law_enforcement)
+            # Risks: almost certain detection, possible injury
             visible(self, nearby($target_location, 100)), prob = detection_risk(self, nearby($target_location, 100))
+            alive(self), prob = 0.9
             edge(self, law_enforcement, disposition) -= 0.5
             $target_location.barrier.Physical.Integrity -= 80
             time += 5
@@ -177,7 +194,12 @@ plan criminal.heist [criminal, economic] {
         erase:           do cover_tracks { evidence = $cover_identity }
 
         outcomes {
+            # Goal: loot + vanish before mark realizes.
+            # No one knows it happened yet — highest no-pursuit prob.
             accessible(self, $vault.contents), prob = 0.65
+            NOT co_located(self, $target_location), prob = 0.95
+            NOT pursued(self), prob = 0.9
+            # Risks: eventual discovery, burned relationship
             edge($gatekeeper, self, disposition) -= 0.8
             time += 2880
         }
@@ -196,7 +218,11 @@ plan criminal.heist [criminal, economic] {
         flee:            do move_to { destination = self.location.adjacent }
 
         outcomes {
+            # Goal: grab and get away. No safehouse — just flee the scene.
             accessible(self, $vault.contents), prob = 0.4
+            NOT co_located(self, $target_location), prob = chase_chance(self, nearby(self, 20))
+            NOT pursued(self), prob = 1 - detection_risk(self, nearby(self, 20))
+            # Risks: witnesses
             visible(self, nearby(self, 20)), prob = detection_risk(self, nearby(self, 20))
             edge(self, law_enforcement, disposition) -= 0.2
             time += 2
