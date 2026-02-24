@@ -570,141 +570,173 @@ at depth 2 thinks: "they expect me to go at night (their counter), so
 I'll go during the day. They might adapt, but I can't predict further."
 That's the ceiling. Deeper is infinite regress, not intelligence.
 
-## Reasoning Plans: Thinking as a Plan
+## Knowledge: Filtered View of Sim History
 
-An agent's currently executing plan is in `self.knowledge` — but only
-for *self*. No one else can see your plan. Observers see **actions**,
-not plans. Plan detection is inference — and inference is a plan.
-
-### Reasoning is not a built-in function
-
-There is no magic `observed_steps()` or `plan_signature_match()`.
-Pattern matching is explicit: the agent runs a **reasoning plan**
-whose `needs` check knowledge of observed actions. If the needs are
-met, the outcome is a belief. Reasoning costs planning budget.
+Agent knowledge is NOT a separate store. It is a **filtered view** of the
+simulation's ground truth history. One history, many views. No duplication.
 
 ```
-1. Actor executes plan step (e.g. gain_entry at $vault_door)
-2. detection_risk world rule fires → observer perceives or doesn't
-3. If perceived: observer.knowledge += performed($actor, gain_entry, target = $vault_door)
-4. Observer's role triggers reasoning plan (Sense.Structured — thinking)
-5. Reasoning plan needs: "do I know $subject did A AND B?"
-   Needs checked against observer's knowledge (belief state)
-6. If match → outcome: self.believes(planning($subject, criminal.heist))
-7. Belief triggers role escalation (alert, challenge, pursue)
+sim.history = [
+    { tick: 100, actor: thief, action: acquire_information, about: vault_layout },
+    { tick: 105, actor: thief, action: acquire_item, source: blacksmith, item: lockpicks },
+    { tick: 200, actor: thief, action: Move, destination: vault_district },
+    ...
+]
+
+guard.knowledge = sim.history.filter(
+    co_located(guard, event.location, at: event.tick)
+    AND detection_risk_passed(guard, event.actor, at: event.tick)
+    AND guard.alert(at: event.tick)
+    AND NOT guard.sleeping(at: event.tick)
+    AND event.tick > now - decay_window
+)
 ```
 
-### Reasoning plans have needs and outcomes
+`self.knows(performed($subject, acquire_item, type = tools))` is a query
+over sim history with the agent's perception filter applied. The thief
+bought lockpicks at tick 105. The guard was co-located and alert and
+detection_risk passed → the guard knows. A different guard was asleep
+at tick 105 → they don't know. Same history, different filters.
 
-A reasoning plan is a regular plan. Its needs check knowledge facts.
-Its outcome is a belief. The `Sense.Structured` step IS the guard
-thinking about what they've seen:
+### Consequences
+
+- **No duplication**: One ground truth log. Each agent's "knowledge"
+  is a view, not a copy.
+- **Automatic consistency**: Agents can't "know" things they couldn't
+  have perceived. The filter enforces this.
+- **Natural staleness**: Old events decay. The filter includes time.
+  Knowledge gained last month contributes less than knowledge from today.
+- **Wrong knowledge = wrong plans**: The agent perceived the action,
+  but the world may have changed since. Plan failure from stale
+  knowledge is correct behavior.
+
+## Suspect Plans: Suspicion as Active Execution
+
+When an agent suspects criminal or hostile activity, they execute a
+**suspect plan**. The plan itself IS the suspicion. No separate belief
+flags, no detection state machine. An active `suspect.heist` plan on
+a guard = the guard is actively investigating a suspected heist.
+
+### The active plan is a virtual item
+
+Running `suspect.heist` is observable. The guard's behavior changes:
+they stop routine patrol, focus on a subject, question people, report
+to authority. Other agents can perceive this — a thief sees that the
+guard has shifted from scanning to investigating. The active plan is
+like a virtual item on the executing agent.
+
+When the suspect plan completes (confirmed → escalate, or dismissed →
+no method's needs satisfied), the suspicion resolves. The guard returns
+to routine. No flag to clear, no state to reset.
+
+### How it works
+
+```
+1. Actor executes plan step (action enters sim history as ground truth)
+2. detection_risk world rule fires → guard maybe perceives
+3. If perceived: guard's filtered view now includes the action
+4. Guard role triggers suspect plan: "do suspect.heist { subject = $subject }"
+5. Suspect plan needs check guard's filtered history view
+6. If match: plan executes — watch subject, report to authority
+7. Suspect plan outcomes: authority.knows(suspected($subject, heist))
+8. Authority's role behaviors activate (investigate, issue warrant, etc.)
+```
+
+### Suspect plans are regular plans
+
+A suspect plan is a regular plan with needs and outcomes. Its needs
+query sim history (filtered). Its steps are concrete actions (Sense,
+Influence). Its outcomes report suspicion to authority figures:
 
 ```acf
-plan reason.match_threat [reasoning, detection] {
-    method heist_pattern {
+plan suspect.heist [detection, criminal, security] {
+    method solo_infiltrator {
         needs {
-            self.knows(performed($subject, acquire_information, about = layout_of($location)))
-            AND self.knows(performed($subject, acquire_item, type = tools))
+            self.knows(performed($subject, Sense, target = $post, count >= 2))
+            AND self.knows(performed($subject, acquire_item, type = lockpicks))
         }
-        assess: do Sense.Structured { target = $subject }
+        watch:  do Sense.Indirect { target = $subject }
+        report: do Influence.Direct { target = $authority, info = suspected_infiltrator }
         outcomes {
-            self.believes(planning($subject, criminal.heist)),
-                prob = observation_chance(self, $subject)
-            time += 5
+            $authority.knows(suspected($subject, criminal.heist))
+            time += 8
         }
     }
 }
 ```
 
 The guard doesn't magically detect a heist. They:
-1. **Observed** someone casing the layout (Sense.Indirect during patrol)
-2. **Observed** the same person acquiring tools (another perceived action)
-3. Both facts entered the guard's knowledge (gated by detection_risk)
-4. Guard is alert → runs reasoning plan → needs check knowledge
-5. Both conditions met → concludes "this person is planning a heist"
-6. Belief triggers escalation behaviors
+1. **Perceived** someone casing the vault (Sense.Indirect during patrol)
+2. **Perceived** the same person acquiring lockpicks (another detected action)
+3. Both events are in sim history; guard's filter includes both
+4. Guard role triggers `suspect.heist` → plan's needs check history
+5. Needs met → plan executes: watch subject, report to authority
+6. Authority now knows `suspected($subject, heist)` → their role activates
 
-### Planning budget limits reasoning depth
+### Planning budget limits suspicion depth
 
-Each agent has limited planning resources per tick. Reasoning plans
+Each agent has limited planning resources per tick. Suspect plans
 consume that budget. This naturally creates the intelligence hierarchy:
 
-- **Simple guard**: Small budget. Can run base `reason.match_threat`
-  with broad pattern methods. Recognizes obvious threats (armed group
-  approaching, someone picking a lock). Misses subtle patterns.
-- **Trained vault guard**: More budget. Can run `reason.vault_threat`
-  with specialized methods that distinguish classic heist from solo
-  infiltration from inside job. Catches casing behavior.
-- **Master investigator**: Large budget. Can run deep reasoning,
-  cross-reference multiple subjects, consider temporal patterns,
-  chain evidence. Catches long cons and inside jobs.
+- **Simple guard**: Small budget. Can run `suspect.theft` (broad
+  patterns). Recognizes obvious threats. Misses subtle patterns.
+- **Trained vault guard**: More budget. Can run `suspect.heist`
+  (distinguishes classic crew from solo infiltration from inside job).
+- **Master investigator**: Large budget. Runs deep suspect plans,
+  cross-references multiple subjects, chains evidence.
 
 The tiers aren't artificial labels — they emerge from planning budget.
-An agent that can't afford to run a reasoning plan this tick simply
-doesn't think about it. They fall back to reactive role behaviors
-(base guard: react to witnessed crimes, threat levels).
+An agent that can't afford a suspect plan this tick falls back to
+reactive role behaviors (base guard: react to witnessed crimes).
 
-### Specialized reasoning variants
+### Suspect plan library
 
-Base reasoning (`reason.match_threat`) has broad methods for common
-threat patterns. Specialized variants add domain-specific analysis:
-
-- `reason.vault_threat` — distinguishes heist methods (classic crew,
+- `suspect.theft` — broad patterns (heist indicators, burglary,
+  pickpocket, confidence scheme)
+- `suspect.smuggling` — contraband patterns (concealed transfer,
+  checkpoint avoidance, forged papers)
+- `suspect.hostile_approach` — armed group indicators
+- `suspect.heist` — vault-specialized deep analysis (classic crew,
   solo infiltration, inside job, smash-and-grab, security probing)
-- `reason.route_threat` — recognizes ambush patterns (prepared ambush,
+- `suspect.ambush` — route-specialized analysis (prepared ambush,
   bandit scout, unusual quiet, roadblock)
-- Future: `reason.market_threat`, `reason.diplomatic_threat`, etc.
 
-Guard roles reference the appropriate reasoning plan. A vault_guard
-triggers `reason.vault_threat` when suspicious. A caravan_guard
-triggers `reason.route_threat`. The reasoning plan IS the guard's
-training — what patterns they know how to recognize.
-
-### Guard role three-phase cycle
-
-Guard variants follow a consistent pattern:
+Guard roles reference the appropriate suspect plan:
 
 ```
-Phase 1: OBSERVE — Sense actions feed knowledge
-  scan_area:     do Sense.Indirect { target = nearby(self, 30) }
-
-Phase 2: REASON — when suspicious, run reasoning plan
-  assess_threat: when self.alert OR self.knows(performed($subject, ...)),
-                 do Sense.Structured { target = $subject }
-
-Phase 3: ESCALATE — beliefs trigger action
-  alert_heist:   when self.believes(planning($subject, criminal.heist)),
-                 do Influence.Direct { target = $authority }
+vault_guard:   do suspect.heist { subject = $subject, post = $post }
+gate_guard:    do suspect.smuggling { subject = $subject }
+market_guard:  do suspect.theft { subject = $subject }
+caravan_guard: do suspect.ambush { group = $group, route = $route }
 ```
-
-The three phases map to role behaviors at different priorities:
-- Observe: low priority (5-10), runs during routine patrol
-- Reason: medium priority (20-25), runs when input triggers suspicion
-- Escalate: high priority (35-50), runs when reasoning produces belief
 
 ### What the thief sees (Tier 1+)
 
 A Tier 1+ thief reasoning about the vault guard:
 
 1. "I know there's a vault_guard role"
-2. "vault_guard triggers `reason.vault_threat` when suspicious"
-3. "That plan's `infiltration_pattern` method needs:
-   `self.knows(performed($subject, Sense, target = $post, count >= 2))`"
-4. "So if they see me scope the vault twice, they'll conclude heist"
+2. "vault_guard triggers `suspect.heist` when they perceive Sense or
+   acquire_item actions near their post"
+3. "suspect.heist's `solo_infiltrator` method needs:
+   `performed($subject, Sense, target = $post, count >= 2)`"
+4. "So if they see me scope the vault twice, they'll start investigating"
 5. "I need to ensure each recon pass beats detection_risk,
-   OR case the vault from a distance (beyond their Sense.Indirect range),
+   OR case from beyond their Sense.Indirect range,
    OR disguise my visits as legitimate activity"
+6. "I can also tell when they're suspicious — their behavior shifts
+   from routine patrol to focused watching (active suspect plan)"
 
-The thief reads the guard's reasoning plan to understand what patterns
-trigger their suspicion — and deliberately avoids those patterns.
-This is the bidirectional counter-reference at the reasoning level.
+The thief reads the guard's suspect plans to understand what patterns
+trigger investigation — and deliberately avoids those patterns. The
+thief can also perceive when the guard IS suspicious (the active plan
+changes their behavior), and adapt accordingly.
 
 ## Open Questions
 
 - How deep should knowledge chaining go before bottoming out at explore?
 - Should drives have explicit priority ordering or purely weight-based?
-- How does knowledge staleness work? (fact was true when learned, no longer is)
+- How does knowledge staleness work? Time-windowed filter on sim history?
 - Should `outcomes` on composite plans be declared or computed from sub-plans?
 - How do agents share knowledge? (telling, teaching, written records)
 - How should planning budget per tick scale? Fixed per-agent, skill-based, trait-based?
+- Should `suspected()` facts propagate across authority networks automatically?

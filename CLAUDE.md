@@ -264,35 +264,48 @@ docs/            spec, summary, source catalog
 - Authorities/laws/mob = implicit contracts. A warrant is Influence.Structured.
 - Inception depth limit: max 2 levels. No infinite regress.
 
-### Reasoning plans and plan recognition
+### Knowledge model
 
-- Plan detection is NOT a built-in function. There is no magic `observed_steps()`.
-  Pattern matching is explicit: agents run **reasoning plans** whose `needs` check
-  knowledge of observed actions. Reasoning is thinking — it costs planning budget.
-- `performed($subject, action_type, params)` is a KNOWLEDGE fact. Perception-gated:
-  only enters observer's knowledge if `detection_risk` was passed when it happened.
-- Reasoning plans produce **beliefs** as outcomes:
-  `self.believes(planning($subject, criminal.heist))`. Beliefs trigger role escalation.
-- Base reasoning: `reason.match_threat` — broad patterns (heist, burglary, smuggling,
-  ambush, pickpocket, confidence scheme). Any trained agent can use.
-- Specialized reasoning: `reason.vault_threat` (heist method distinction),
-  `reason.route_threat` (ambush pattern analysis). Requires domain training.
-- Planning budget per tick limits reasoning depth. Simple agents can't afford deep
-  reasoning plans. Smart agents run specialized variants. Budget = intelligence.
+- Agent knowledge = **filtered view of sim history**. One ground truth log, many views.
+  No duplication. `self.knows(fact)` queries sim history with the agent's perception
+  filter applied (co_location + detection_risk + alertness + time_decay).
+- `performed($subject, action_type, params)` queries sim history for observed actions.
+  The action exists in ground truth; `self.knows(performed(...))` returns true only if
+  the agent's perception filter passes for that event.
+- `suspected($subject, plan_id)` is a knowledge fact created when a suspect plan
+  reports to authority. Authorities receiving this may activate investigation behaviors.
+
+### Suspect plans and plan recognition
+
+- Plan detection uses **suspect plans** (`suspect.*`). When an agent suspects criminal
+  or hostile activity, they execute a suspect plan. The active plan IS the suspicion.
+  No separate belief flags — running `suspect.heist` = actively investigating.
+- Suspect plans are regular plans with `needs` that check sim history (filtered) and
+  `outcomes` that report suspicion: `$authority.knows(suspected($subject, heist))`.
+- The active suspect plan is a **virtual item** on the executing agent — observable.
+  A thief can see the guard has shifted from routine patrol to focused investigation.
+  When the plan completes or dismisses, suspicion lifts naturally.
+- Base suspect plans: `suspect.theft` (heist, burglary, pickpocket, con patterns),
+  `suspect.smuggling`, `suspect.hostile_approach`. Any trained guard can use.
+- Specialized suspect plans: `suspect.heist` (distinguishes heist methods),
+  `suspect.ambush` (route-specific ambush analysis). Requires domain training.
+- Planning budget per tick limits suspect plan depth. Simple agents can't afford
+  deep suspect plans. Smart agents run specialized variants. Budget = intelligence.
 
 ### Guard variants and role-driven detection
 
 - Guard roles are specialized by post. Each variant inherits base guard behaviors
-  (patrol, alert, defend, arrest, report) and adds a three-phase cycle:
-  **Observe** (Sense actions feed knowledge) → **Reason** (reasoning plan matches
-  patterns) → **Escalate** (beliefs trigger alert/challenge/pursue).
-- `vault_guard` uses `reason.vault_threat` to distinguish heist methods.
-  `gate_guard` reasons about smuggling and unauthorized entry.
-  `market_guard` reasons about theft and confidence schemes.
-  `caravan_guard` uses `reason.route_threat` for ambush patterns.
-- A guard who hasn't been trained (doesn't know the reasoning plan) can't recognize
-  the pattern. A farmer witnessing the same actions as a vault guard won't conclude
-  "heist" — they don't have the reasoning plan in their repertoire.
+  (patrol, alert, defend, arrest, report) and adds:
+  **Observe** (Sense actions feed sim history perception) →
+  **Suspect** (trigger suspect.* plan — the active plan IS the suspicion) →
+  **Escalate** (suspect plan outcomes report to authority, trigger defense).
+- `vault_guard` runs `suspect.heist` to distinguish heist methods.
+  `gate_guard` runs `suspect.smuggling` for contraband patterns.
+  `market_guard` runs `suspect.theft` for pickpocket/shoplifting.
+  `caravan_guard` runs `suspect.ambush` for ambush patterns.
+- A guard who hasn't been trained (doesn't know the suspect plan) can't recognize
+  the pattern. A farmer witnessing the same actions as a vault guard won't investigate
+  — they don't have the suspect plan in their repertoire.
 
 ### World rules
 

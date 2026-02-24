@@ -1,0 +1,149 @@
+# ── Suspect Plans (Base) ─────────────────────────────────────────
+# When an agent suspects criminal or hostile activity, they execute
+# a suspect plan. The plan itself IS the suspicion — an active plan
+# running on the agent. Observable: the agent's behavior changes
+# (watching more carefully, questioning people, reporting).
+#
+# Agent knowledge = filtered view of sim history.
+# self.knows(performed(...)) queries sim history filtered by what
+# this agent actually perceived (detection_risk, co_location,
+# alertness, line of sight). No duplication — one history, many views.
+#
+# Suspect plans consume planning budget. The active plan is a virtual
+# item on the executing agent — other agents can perceive that the
+# guard is investigating (their behavior is different from routine).
+#
+# Dismissal: if investigation finds nothing, the plan ends naturally
+# (no method's needs remain satisfied). Suspicion lifts.
+
+plan suspect.theft [detection, criminal] {
+
+    params {
+        subject = PersonRef
+    }
+
+    # ── Heist indicators ────────────────────────────────────────
+    # Casing + tool acquisition = likely heist or burglary
+    method heist_pattern {
+        needs {
+            self.knows(performed($subject, acquire_information, about = layout_of($location)))
+            AND self.knows(performed($subject, acquire_item, type = tools))
+        }
+        watch:  do Sense.Indirect { target = $subject }
+        report: do Influence.Direct { target = $authority, info = suspected_heist }
+        outcomes {
+            $authority.knows(suspected($subject, criminal.heist))
+            time += 5
+        }
+    }
+
+    # ── Burglary indicators ─────────────────────────────────────
+    # Repeated observation of a building + nighttime approach
+    method burglary_pattern {
+        needs {
+            self.knows(performed($subject, Sense, target = $building))
+            AND self.knows(performed($subject, Move, destination = $building))
+            AND time.is_night
+        }
+        watch:  do Sense.Indirect { target = $subject }
+        report: do Influence.Direct { target = $authority, info = suspected_burglary }
+        outcomes {
+            $authority.knows(suspected($subject, criminal.burglary))
+            time += 3
+        }
+    }
+
+    # ── Pickpocket indicators ───────────────────────────────────
+    # Close approach to mark + furtive hand movement
+    method pickpocket_pattern {
+        needs {
+            self.knows(performed($subject, Move, target = $mark, distance < 1))
+            AND self.knows(performed($subject, Transfer, source = $mark))
+        }
+        intervene: do Influence.Direct { target = $subject, intent = halt }
+        outcomes {
+            NOT $subject.active_plan == criminal.pickpocket, prob = 0.5
+            time += 2
+        }
+    }
+
+    # ── Confidence scheme indicators ────────────────────────────
+    # Prolonged engagement with mark + false identity
+    method con_pattern {
+        needs {
+            self.knows(performed($subject, Influence, target = $mark, frequency >= 3))
+            AND self.knows(performed($subject, establish_cover))
+        }
+        watch:  do Sense.Structured { target = $subject }
+        report: do Influence.Direct { target = $authority, info = suspected_fraud }
+        outcomes {
+            $authority.knows(suspected($subject, criminal.confidence_scheme))
+            time += 10
+        }
+    }
+}
+
+plan suspect.smuggling [detection, criminal] {
+
+    params {
+        subject = PersonRef
+    }
+
+    # ── Concealed transfer + checkpoint avoidance ───────────────
+    method evasion_pattern {
+        needs {
+            self.knows(performed($subject, Transfer, concealed = true))
+            OR (self.knows(performed($subject, Move, avoiding = $checkpoint))
+                AND $subject.cargo.weight > 10)
+        }
+        inspect: do Sense.Direct { target = $subject.cargo }
+        report:  do Influence.Direct { target = $authority, info = suspected_smuggling }
+        outcomes {
+            $authority.knows(suspected($subject, criminal.smuggling))
+            time += 5
+        }
+    }
+
+    # ── False papers / forged permits ───────────────────────────
+    method document_pattern {
+        needs {
+            self.knows(performed($subject, Influence, target = self, intent = present_papers))
+            AND self.knows($subject.papers.quality < 0.5)
+        }
+        confiscate: do Transfer.Direct { source = $subject.papers }
+        detain:     do Influence.Direct { target = $subject, intent = hold }
+        outcomes {
+            NOT $subject.has($subject.papers)
+            time += 10
+        }
+    }
+}
+
+plan suspect.hostile_approach [detection, military] {
+
+    params {
+        group = GroupRef
+    }
+
+    # ── Armed group spreading out near chokepoint ───────────────
+    method ambush_indicators {
+        needs {
+            self.knows(performed($group, Move, formation = spread))
+            AND terrain.type == chokepoint
+            AND count($group) >= 3
+        }
+        assess: do Sense.Structured { target = $group }
+        warn:   do Influence.Direct { target = $authority, info = hostile_approach }
+        outcomes {
+            $authority.knows(suspected($group, military.ambush))
+            time += 3
+        }
+    }
+}
+
+_provenance {
+    sources = [{ type = design_pattern, id = threat_recognition, confidence = 0.8 }]
+    model = seed
+    verified = true
+    reviewer = manu
+}

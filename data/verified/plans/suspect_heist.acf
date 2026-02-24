@@ -1,12 +1,15 @@
-# ── Vault Threat Reasoning ───────────────────────────────────────
-# Specialized reasoning for vault/treasury guards. Deeper pattern
-# analysis that distinguishes heist methods (classic crew, solo
-# infiltration, inside job, smash and grab).
+# ── Suspect Heist (Vault-Specialized) ────────────────────────────
+# Deep heist pattern analysis for trained vault/treasury guards.
+# Distinguishes heist methods: classic crew, solo infiltration,
+# inside job, smash and grab, security probing.
 #
-# Requires more planning budget than base reason.match_threat.
-# Only vault_guard roles have the training to use these methods.
+# Running this plan = the guard is actively investigating a suspected
+# heist. The active plan is observable — a thief can see the guard
+# has shifted from routine patrol to focused investigation.
+#
+# Requires more planning budget than base suspect.theft.
 
-plan reason.vault_threat [reasoning, detection, security] {
+plan suspect.heist [detection, criminal, security] {
 
     params {
         subject = PersonRef
@@ -15,79 +18,83 @@ plan reason.vault_threat [reasoning, detection, security] {
 
     # ── Classic crew heist ──────────────────────────────────────
     # Subject gathered intel on layout + schedule + recruited crew
-    method classic_heist_pattern {
+    method classic_crew {
         needs {
             self.knows(performed($subject, acquire_information, about = layout_of($post)))
             AND self.knows(performed($subject, acquire_information, about = schedule_of($post.guards)))
             AND self.knows(count(co_located($subject, AlliedWith)) >= 3)
         }
-        assess: do Sense.Structured { target = $subject }
+        assess:  do Sense.Structured { target = $subject }
+        report:  do Influence.Direct { target = $authority, info = suspected_heist_crew }
+        lockdown: do Influence.Direct { target = $garrison, info = lockdown }
         outcomes {
-            self.believes(planning($subject, criminal.heist)),
-                prob = observation_chance(self, $subject)
+            $authority.knows(suspected($subject, criminal.heist))
+            $garrison.alert = true
             time += 10
         }
     }
 
     # ── Solo infiltration ───────────────────────────────────────
     # Lone subject repeatedly observing the post + acquired lockpicks
-    method infiltration_pattern {
+    method solo_infiltrator {
         needs {
             self.knows(performed($subject, Sense, target = $post, count >= 2))
             AND self.knows(performed($subject, acquire_item, type = lockpicks))
             AND NOT self.knows(co_located($subject, AlliedWith))
         }
-        assess: do Sense.Structured { target = $subject }
+        watch:   do Sense.Indirect { target = $subject }
+        report:  do Influence.Direct { target = $authority, info = suspected_infiltrator }
         outcomes {
-            self.believes(planning($subject, criminal.heist)),
-                prob = observation_chance(self, $subject)
+            $authority.knows(suspected($subject, criminal.heist))
             time += 8
         }
     }
 
     # ── Inside job ──────────────────────────────────────────────
     # Trusted insider meeting with unknown outsider + behavior change
-    method inside_job_pattern {
+    method inside_job {
         needs {
             self.knows(performed($insider, Influence, target = $unknown, frequency >= 3))
             AND co_located($insider, $post)
             AND self.knows($insider.behavior_changed)
         }
-        assess: do Sense.Structured { target = $insider }
+        watch_insider: do Sense.Indirect { target = $insider }
+        watch_contact: do Sense.Indirect { target = $unknown }
+        report:        do Influence.Direct { target = $authority, info = suspected_inside_job }
         outcomes {
-            self.believes(planning($unknown, criminal.heist)),
-                prob = observation_chance(self, $insider) * 0.5
+            $authority.knows(suspected($unknown, criminal.heist))
+            $authority.knows(suspected($insider, conspiracy))
             time += 15
         }
     }
 
     # ── Smash and grab ──────────────────────────────────────────
-    # Armed group approaching fast + heavy equipment
-    method smash_grab_pattern {
+    # Armed group approaching fast + heavy equipment — immediate
+    method smash_grab {
         needs {
             self.knows(performed($group, Move, destination = $post, speed = fast))
             AND (self.knows($group.equipped(ram)) OR self.knows($group.combat_power > 30))
         }
-        assess: do Sense.Structured { target = $group }
+        warn:    do Influence.Direct { target = $garrison, info = imminent_attack }
+        brace:   do Defense.Direct { target = $post }
         outcomes {
-            self.believes(planning($group, criminal.heist)),
-                prob = observation_chance(self, $group)
+            $garrison.alert = true
             time += 2
         }
     }
 
     # ── Security probing ───────────────────────────────────────
     # Someone testing locks, checking alarm triggers, timing patrols
-    # Not a full heist pattern yet — early warning
-    method security_probe_pattern {
+    # Not a full heist yet — early warning, heighten alertness
+    method probe {
         needs {
             self.knows(performed($subject, Sense, target = $post.security))
             OR self.knows(performed($subject, Modify, target = $post.locks, intent = test))
         }
-        assess: do Sense.Structured { target = $subject }
+        watch:   do Sense.Indirect { target = $subject }
+        challenge: do Influence.Direct { target = $subject, intent = identify }
         outcomes {
-            self.believes(probing($subject, $post)),
-                prob = observation_chance(self, $subject)
+            self.alert = true
             time += 5
         }
     }

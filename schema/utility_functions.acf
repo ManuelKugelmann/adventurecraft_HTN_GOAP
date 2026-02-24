@@ -243,24 +243,38 @@ function attribution_risk(investigator, suspect) [RESOLUTION, planned] {
     notes: time decay favors the suspect; old evidence harder to attribute
 }
 
-# ── KNOWLEDGE: agent belief state ─────────────────────────────────
-# Checked in needs { }. The agent plans based on what it knows,
-# not what is true. Stale/wrong knowledge leads to plan failure,
-# which is correct behavior (agent was misinformed).
+# ── KNOWLEDGE: filtered view of sim history ──────────────────────
+# Agent knowledge is NOT a separate store. It is a filtered view of
+# the simulation's ground truth history. One history, many views.
+#
+# The filter is the agent's perception: was I co-located? Did I pass
+# detection_risk? Was I alert/awake? Did I have line of sight?
+# No duplication — the engine queries sim history with the agent's
+# perception filter applied.
+#
+# self.knows(fact) = sim.history.filter(self.perception).contains(fact)
+#
+# Stale/wrong knowledge: the filter includes time decay. Old facts
+# may no longer match. Also, the fact was true when perceived but
+# the world may have changed since. Plan failure from stale knowledge
+# is correct behavior (agent was misinformed).
 #
 # Call syntax: self.knows(fact)
 # Engine signature: knows(agent, fact)
 
 function knows(agent, fact) [KNOWLEDGE, core] {
-    # Agent has this fact in belief state
+    # Query agent's filtered view of sim history for this fact
     returns: bool
-    notes: the fundamental knowledge check, gates almost everything
+    resolves_to: sim.history.filter(agent.perception_filter).contains(fact)
+    notes: the fundamental knowledge check, gates almost everything.
+           perception_filter = co_located + detection_risk + alertness + time_decay
 }
 
 # Knowledge types — structured facts that agents store and query.
 # Each is a fact constructor passed to knows():
 #   self.knows(route_to($destination, walking))
 #   self.knows(location_of($item))
+#   self.knows(performed($subject, acquire_item, type = tools))
 
 function route_to(destination, mode) [KNOWLEDGE, core] {
     # Navigation data for reaching destination via mode (walking, riding, sailing, ...)
@@ -323,15 +337,24 @@ function reputation_of(person) [KNOWLEDGE, candidate] {
 }
 
 function performed(subject, action_type) [KNOWLEDGE, planned] {
-    # Agent observed subject performing an action of this type.
-    # Perception-gated: only enters knowledge if detection_risk was passed
-    # at the time the action happened. Structured fact with params:
+    # Query sim history (filtered by self's perception) for an action
+    # performed by subject. The action is in sim history as ground truth;
+    # self.knows(performed(...)) returns true only if the perception
+    # filter passes (agent was present, alert, detection_risk cleared).
     #   performed($subject, acquire_information, about = $location)
     #   performed($subject, gain_entry, target = $door)
     #   performed($subject, Transfer, concealed = true)
-    # Used in reasoning plan needs to match observed behavior patterns.
-    # Decays with time: old observations fade from knowledge.
-    # Gates: reasoning plans (reason.match_threat, etc.)
+    # Used in suspect plan needs to match observed behavior patterns.
+    # Decays with time: old observations contribute less.
+    # Gates: suspect plans (suspect.theft, suspect.heist, etc.)
+    returns: fact
+}
+
+function suspected(subject, plan_id) [KNOWLEDGE, planned] {
+    # Someone has reported suspicion about subject executing plan_id.
+    # Created as an outcome of suspect.* plans (guard reports to authority).
+    # Authorities receiving this fact may activate investigation behaviors.
+    # Gates: investigation plans, arrest plans, warrant issuance
     returns: fact
 }
 

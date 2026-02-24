@@ -1,9 +1,13 @@
-# ── Route Threat Reasoning ───────────────────────────────────────
-# Specialized reasoning for caravan guards and route patrols.
-# Recognizes ambush, banditry, and animal threat patterns from
-# terrain cues and observed movement.
+# ── Suspect Ambush (Route-Specialized) ───────────────────────────
+# Specialized suspicion plans for caravan guards and route patrols.
+# Recognizes ambush, banditry, and threat patterns from terrain cues
+# and observed movement along trade routes.
+#
+# Running this plan = the guard is actively scanning for ambush.
+# Observable: guard behavior shifts from routine escort to
+# heightened alertness, flank-checking, speed changes.
 
-plan reason.route_threat [reasoning, detection, military] {
+plan suspect.ambush [detection, military] {
 
     params {
         group = GroupRef
@@ -12,32 +16,33 @@ plan reason.route_threat [reasoning, detection, military] {
 
     # ── Prepared ambush ─────────────────────────────────────────
     # Group positioned in concealment near chokepoint + road obstruction
-    method prepared_ambush_pattern {
+    method prepared_ambush {
         needs {
             self.knows(performed($group, Move, destination = $treeline))
             AND terrain.type == chokepoint
             AND self.knows(visible(self, $obstruction) AND $obstruction.blocking($route))
         }
         assess: do Sense.Structured { target = $group }
+        warn:   do Influence.Direct { target = $caravan_master, info = ambush_ahead }
+        halt:   do Influence.Direct { target = $caravan, info = halt }
         outcomes {
-            self.believes(planning($group, military.ambush)),
-                prob = observation_chance(self, $group)
+            $caravan_master.knows(suspected($group, military.ambush))
             time += 5
         }
     }
 
     # ── Bandit scout ────────────────────────────────────────────
     # Lone rider shadowing the caravan from a distance
-    method bandit_scout_pattern {
+    method bandit_scout {
         needs {
             self.knows(performed($scout, Sense, target = $caravan, repeated = true))
             AND self.knows(performed($scout, Move, parallel_to = $route))
             AND NOT edge(self.faction, $scout.faction, disposition) > 0
         }
-        assess: do Sense.Structured { target = $scout }
+        track:  do Sense.Indirect { target = $scout }
+        warn:   do Influence.Direct { target = $caravan_master, info = being_scouted }
         outcomes {
-            self.believes(scouting($scout, $caravan)),
-                prob = observation_chance(self, $scout)
+            $caravan_master.knows(suspected($scout, scouting))
             time += 3
         }
     }
@@ -50,26 +55,27 @@ plan reason.route_threat [reasoning, detection, military] {
             AND count(nearby(self, 200), traveler) == 0
             AND terrain.normally_populated
         }
-        assess: do Sense.Indirect { target = $route.flanks }
+        scan:   do Sense.Indirect { target = $route.flanks }
+        warn:   do Influence.Direct { target = $caravan_master, info = suspicious_quiet }
         outcomes {
-            self.believes(threat_nearby($route)),
-                prob = 0.4
+            self.alert = true
             time += 5
         }
     }
 
     # ── Roadblock ───────────────────────────────────────────────
     # Felled tree, overturned cart, or other obstacle forcing a stop
-    method roadblock_pattern {
+    method roadblock {
         needs {
             visible(self, $obstruction)
             AND $obstruction.blocking($route)
             AND NOT $obstruction.natural
         }
-        assess: do Sense.Indirect { target = nearby($obstruction, 50) }
+        scan_flanks: do Sense.Indirect { target = nearby($obstruction, 50) }
+        warn:        do Influence.Direct { target = $caravan_master, info = roadblock_trap }
+        form_up:     do Defense.Structured { target = $caravan }
         outcomes {
-            self.believes(planning($unknown, military.ambush)),
-                prob = 0.6
+            $caravan_master.knows(suspected($unknown, military.ambush))
             time += 3
         }
     }
