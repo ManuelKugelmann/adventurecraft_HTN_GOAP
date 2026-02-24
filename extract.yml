@@ -1,0 +1,106 @@
+name: Extract
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # daily 2am UTC
+  workflow_dispatch:
+    inputs:
+      source:
+        description: 'Source to extract from'
+        required: true
+        default: 'everyday'
+        type: choice
+        options:
+          - propp
+          - military
+          - everyday
+          - tvtropes
+          - folklore
+          - world_rules
+      batch_size:
+        description: 'Number of items to extract'
+        required: false
+        default: '5'
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # Daily rotation: each day hits a different source
+        # workflow_dispatch overrides with input
+        include:
+          - source: everyday
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Determine source
+        id: params
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "source=${{ inputs.source }}" >> $GITHUB_OUTPUT
+            echo "batch=${{ inputs.batch_size }}" >> $GITHUB_OUTPUT
+          else
+            # Rotate through sources by day of week
+            DAY=$(date +%u)
+            SOURCES=(everyday propp military world_rules tvtropes folklore everyday)
+            echo "source=${SOURCES[$DAY-1]}" >> $GITHUB_OUTPUT
+            echo "batch=5" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Extract batch
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          python tools/extract.py \
+            --source ${{ steps.params.outputs.source }} \
+            --batch ${{ steps.params.outputs.batch }}
+
+      - name: Validate extracted data
+        run: python tools/validate.py data/raw/
+
+      - name: Create PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="extract/${{ steps.params.outputs.source }}-$(date +%Y%m%d)"
+          git checkout -b "$BRANCH"
+          git add data/raw/
+          
+          # Count new files
+          NEW=$(git diff --cached --name-only | wc -l)
+          if [ "$NEW" -eq 0 ]; then
+            echo "No new files extracted. Skipping PR."
+            exit 0
+          fi
+          
+          git commit -m "data: extract $NEW items from ${{ steps.params.outputs.source }}
+
+          Source: ${{ steps.params.outputs.source }}
+          Batch: ${{ steps.params.outputs.batch }}
+          Files: $NEW new .acf files"
+
+          git push origin "$BRANCH"
+          
+          gh pr create \
+            --title "Extract: ${{ steps.params.outputs.source }} $(date +%Y-%m-%d)" \
+            --body "Automated extraction from ${{ steps.params.outputs.source }}.
+
+          **New files:** $NEW
+          **Validation:** ✅ passed
+
+          Review and merge to move to verification queue." \
+            --label extraction \
+            --label ${{ steps.params.outputs.source }}

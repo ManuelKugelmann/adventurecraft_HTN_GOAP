@@ -1,0 +1,67 @@
+name: Counters
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'data/verified/**/*.acf'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  counters:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Find counter gaps
+        id: gaps
+        run: |
+          GAPS=$(python tools/counters.py data/verified/ --dry-run 2>&1 | grep -c "^  -" || true)
+          echo "count=$GAPS" >> $GITHUB_OUTPUT
+          echo "Found $GAPS plans without counters"
+
+      - name: Generate counters
+        if: steps.gaps.outputs.count != '0'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python tools/counters.py data/verified/ --batch 10
+
+      - name: Validate
+        if: steps.gaps.outputs.count != '0'
+        run: python tools/validate.py data/verified/
+
+      - name: Create PR
+        if: steps.gaps.outputs.count != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="counters-$(date +%Y%m%d-%H%M)"
+          git checkout -b "$BRANCH"
+          git add data/verified/
+          
+          CHANGED=$(git diff --cached --name-only | wc -l)
+          if [ "$CHANGED" -eq 0 ]; then
+            echo "No counter changes."
+            exit 0
+          fi
+          
+          git commit -m "data: generate counter-plans for $CHANGED files"
+          git push origin "$BRANCH"
+          
+          gh pr create \
+            --title "Counters: $(date +%Y-%m-%d)" \
+            --body "Auto-generated counter-plans for plans missing them.
+
+          **Files patched:** $CHANGED
+          **Validation:** ✅ passed" \
+            --label counter

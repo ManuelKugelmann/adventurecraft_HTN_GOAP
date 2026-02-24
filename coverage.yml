@@ -1,0 +1,45 @@
+name: Coverage
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'  # weekly Monday 6am UTC
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Generate coverage report
+        id: report
+        run: |
+          REPORT=$(python tools/coverage.py)
+          echo "$REPORT"
+          
+          # Write to file for issue body
+          echo "$REPORT" > /tmp/coverage.txt
+
+      - name: Create/update issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TITLE="Coverage Report $(date +%Y-%m-%d)"
+          BODY=$(cat /tmp/coverage.txt)
+          
+          gh issue create \
+            --title "$TITLE" \
+            --body "\`\`\`
+          $BODY
+          \`\`\`" \
+            --label coverage
