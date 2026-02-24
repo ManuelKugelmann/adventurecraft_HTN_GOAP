@@ -1,10 +1,14 @@
 # ── Utility Functions ─────────────────────────────────────────────
 #
-# Catalog of predicate and query functions used in needs { } blocks
-# and estimates { } blocks across plans, roles, and rules.
+# Catalog of predicate and query functions used in needs { } and
+# outcomes { } blocks across plans, roles, and rules.
 #
 # Categories:
 #   ENGINE    — requires engine implementation (spatial, pathfinding, physics)
+#             World-truth functions. Used by engine to validate execution.
+#   KNOWLEDGE — agent belief state queries. Used in needs { }.
+#             Checked against what the agent knows, not world truth.
+#             Mismatch between KNOWLEDGE and ENGINE = plan failure at runtime.
 #   DERIVED   — resolves to trait queries + simple math
 #   SUGAR     — shorthand for common trait checks
 #   PLAN      — resolves to sub-plan evaluation (planner must attempt)
@@ -15,52 +19,78 @@
 #   candidate — useful but may be cut or folded into another function
 #
 
-# ── ENGINE: require native implementation ─────────────────────────
-# These touch runtime systems that can't be expressed as plan decomposition.
+# ── ENGINE: world-truth, require native implementation ────────────
+# These touch runtime systems. The engine uses them to validate
+# actual execution. Agents do NOT call these directly in needs —
+# they check their belief state via KNOWLEDGE functions instead.
 
 function distance(a, b) [ENGINE, core] {
-    # Spatial distance between two nodes
-    # Used in: needs, estimates
+    # Spatial distance between two nodes (world truth)
     returns: float
     notes: pathfinding-aware, not just euclidean
 }
 
 function reachable(a, b) [ENGINE, core] {
-    # Path exists from a to b (terrain, doors, water)
+    # Path exists from a to b (world truth: terrain, doors, water)
     returns: bool
     notes: cheaper than distance, early-out
 }
 
 function visible(observer, target) [ENGINE, core] {
-    # Line of sight + perception check
+    # Line of sight + perception check (world truth)
     returns: bool
     depends: observer.Skills.observation, Lighting, Obscurity
 }
 
 function nearby(center, radius) [ENGINE, core] {
-    # All nodes within radius of center
+    # All nodes within radius of center (world truth)
     returns: set<node>
     notes: spatial query, used for area effects and awareness
 }
 
 function co_located(a, b) [ENGINE, core] {
-    # Same region or container
+    # Same region or container (world truth)
     returns: bool
     notes: cheaper than distance < threshold
 }
 
+# ── KNOWLEDGE: agent belief state ─────────────────────────────────
+# Checked in needs { }. The agent plans based on what it knows,
+# not what is true. Stale/wrong knowledge leads to plan failure,
+# which is correct behavior (agent was misinformed).
+
+function self.knows(fact) [KNOWLEDGE, core] {
+    # Agent has this fact in belief state
+    returns: bool
+    notes: the fundamental knowledge check, gates almost everything
+}
+
+# Knowledge types — what agents need to know to plan:
+
+# route_to(dest, mode)        navigation data, gates all movement
+# location_of(node)           where something is, gates acquire_access
+# properties_of(node)         what something is, gates method selection
+# price_of(item, market)      trade value, gates economic plans
+# weakness_of(target)         combat/social weak points, gates efficient action
+# schedule_of(person)         timing patterns, gates interception/meeting
+# recipe_for(item)            crafting knowledge, gates Modify.Structured
+# members_of(group)           who belongs, gates social/political plans
+# layout_of(location)         interior structure, gates navigation inside
+# reputation_of(person)       public standing, gates social approach selection
+
 # ── DERIVED: resolve to trait queries + math ──────────────────────
 # Can be evaluated from node data without engine calls.
+# These check against agent belief state where applicable.
 
 function accessible(self, node) [DERIVED, core] {
-    # Can self interact with node right now
+    # Can self interact with node right now (from agent's knowledge)
     # The universal precondition — what acquire_access resolves
     returns: bool
     resolves_to:
         node.has(Physical) AND node.has(Portable) => contains(self.inventory, node)
         node.has(Physical) AND NOT node.has(Portable) => co_located(self, node)
         node.has(Region) => self.location == node
-        node.has(Knowledge) => contains(self.memory, node)
+        node.has(Knowledge) => self.knows(node)
         node.has(Person) => co_located(self, node)
 }
 
@@ -106,6 +136,13 @@ function authority_over(a, b) [DERIVED, planned] {
     returns: bool
     resolves_to: edge(a, b, authority) > 0 OR edge(a, b.group, authority) > 0
     notes: never stored, always derived from relationships
+}
+
+function threat_level(location) [DERIVED, planned] {
+    # Estimated danger at location (from agent's knowledge)
+    returns: float
+    resolves_to: count(location, hostile) * avg(location.hostiles.combat_power)
+    notes: used in outcomes as side-effect cost
 }
 
 # ── SUGAR: shorthand for trait checks ─────────────────────────────
@@ -169,29 +206,9 @@ function can_enter(self, location) [PLAN, candidate] {
     resolves_to: exists method in gain_entry where method.needs(self, location)
 }
 
-# ── ESTIMATE HELPERS: used in estimates { } blocks ────────────────
-# Return numeric values for plan ranking, not boolean.
-
-function travel_time(self, destination) [DERIVED, planned] {
-    returns: float
-    resolves_to: distance(self, destination) / self.Movement.Speed
-    notes: base estimate, methods refine with mount speed etc.
-}
-
-function threat_level(location) [DERIVED, planned] {
-    returns: float
-    resolves_to: count(location, hostile) * avg(location.hostiles.combat_power)
-    notes: rough heuristic for risk estimation
-}
-
-function fatigue_cost(self, action_type, duration) [DERIVED, candidate] {
-    returns: float
-    resolves_to: duration * self.Physical.Weight * action_type.exertion_rate
-}
-
 _provenance {
     type: design_catalog
     status: draft
-    purpose: collect utility function candidates for needs/estimates evaluation
-    categories: ENGINE requires native code, DERIVED is data-only, SUGAR is shorthand, PLAN is planner query
+    purpose: collect utility function candidates for needs/outcomes evaluation
+    categories: ENGINE is world-truth, KNOWLEDGE is belief-state, DERIVED is data-only, SUGAR is shorthand, PLAN is planner query
 }

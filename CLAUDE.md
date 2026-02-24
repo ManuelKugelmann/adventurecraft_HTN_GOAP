@@ -64,9 +64,20 @@ role farmer [economic, rural] {
              do Transfer.Direct { source = $field }, priority = 15
 }
 
+plan move_to.walk [movement] {
+    needs { $destination.has(Region) AND self.knows(route_to($destination, walking)) }
+    outcomes {
+        co_located(self, $destination), prob = 0.95
+        self.Vitals.Stamina -= distance(self, $destination) * self.Physical.Weight * 0.1
+        time += distance(self, $destination) / self.Movement.Speed
+    }
+    step: do Move.Direct { destination = $destination }
+}
+
 plan criminal.heist [criminal, economic] {
+    needs { accessible(self, $tools) AND accessible(self, $target_location) }
     method classic {
-        when { crew.weight >= 3 }
+        needs { crew.weight >= 3 }
         recon:   do Sense.Structured { target = $vault, secrecy = 0.8 }
         CRACK:   do Modify.Direct { target = $vault_door }
             prob = sigmoid(crew.skills.crafting - $vault.security)
@@ -74,7 +85,11 @@ plan criminal.heist [criminal, economic] {
         grab:    do Transfer.Direct { source = $vault, secrecy = 0.9 }
         ABORT:   do Move.Structured { destination = $safehouse, secrecy = 0.9 }
     }
-    done { self.inventory.value > $vault.former_value * 0.5 }
+    outcomes {
+        self.inventory.value += $vault.value * 0.5, prob = 0.6
+        visible(self, $vault.guards), prob = 0.4
+        time += 120
+    }
 }
 ```
 
@@ -82,10 +97,24 @@ plan criminal.heist [criminal, economic] {
 
 Bare tokens everywhere. Quotes ONLY for human text with spaces.
 
+## Plan Sections
+
+Two sections per plan (and per method):
+
+- `needs { }` — preconditions. Boolean, hard filter. Must be true or method is excluded.
+  Checked against agent belief state, not world truth.
+- `outcomes { }` — postconditions. Probabilistic. Includes goal, side effects, and costs (including time).
+  The planner chains on outcomes and weighs all of them against the agent's drives.
+
+Top-level plans compose sub-plans. Leaf plans contain concrete `do Action.Approach` steps.
+The planner auto-inserts sub-plans when `needs` are unmet (e.g. missing item, missing knowledge, missing access).
+
 ## Expression Language
 
 Trait field paths: `Vitals.Health`, `entity.path`
-Built-in functions: `distance(A, B)`, `contains(node, kind)`, `count(node, kind)`, `sigmoid(x)`, `depth(node)`
+Built-in functions: see `schema/utility_functions.acf` for full catalog
+Core functions: `distance(A, B)`, `accessible(self, node)`, `co_located(a, b)`, `visible(a, b)`, `self.knows(X)`
+Math: `sigmoid(x)`, `min()`, `max()`, `abs()`, `count()`, `sum()`
 Operators: `+ - * / < > == != >= <= AND OR NOT`
 
 ## Validation Rules
@@ -154,3 +183,8 @@ docs/            spec, summary, source catalog
 - Rules respect layer dependencies: L0->L1->L2->L3->L4
 - Approaches are Direct, Indirect, Structured (NOT Careful)
 - Authority/reputation derived from relationships, never stored as attributes
+- Plans use `needs` (preconditions) and `outcomes` (postconditions), NOT `precond`, `done`, or `estimates`
+- `needs` are boolean hard filters checked against agent belief state
+- `outcomes` are probabilistic and include goal, side effects, and costs (including `time +=`)
+- Top-level plans compose sub-plans; only leaves have concrete `do` steps
+- Utility functions cataloged in `schema/utility_functions.acf`
