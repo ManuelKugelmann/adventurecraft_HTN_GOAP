@@ -1,0 +1,58 @@
+plan rest [survival, universal] {
+
+    params {
+        location = SpatialRef
+    }
+
+    # Planner auto-inserts when stamina would go negative.
+    # Every agent has this. Method selection based on what's available.
+
+    method sleep_indoors {
+        needs { accessible(self, $bed) AND $bed.has(Furniture) AND co_located(self, $bed) }
+        lie_down: do Modify.Direct { target = $bed }
+        outcomes {
+            self.Vitals.Stamina += 80
+            self.Vitals.Fatigue -= 80
+            time += 480
+        }
+    }
+
+    method sleep_rough {
+        needs { NOT hostile(nearby(self, 30), self) }
+        find_spot: do Sense.Direct { target = self.location }
+        rest:      do Modify.Direct { target = self }
+        outcomes {
+            self.Vitals.Stamina += 40
+            self.Vitals.Fatigue -= 40
+            self.Vitals.Health -= 2
+            time += 480
+        }
+    }
+
+    method nap {
+        needs { }
+        rest: do Modify.Direct { target = self }
+        outcomes {
+            self.Vitals.Stamina += 20
+            self.Vitals.Fatigue -= 15
+            time += 60
+        }
+    }
+
+    method meditate {
+        needs { self.Skills.meditation > 10 }
+        focus: do Modify.Direct { target = self }
+        outcomes {
+            self.Vitals.Stamina += 30
+            self.Vitals.Fatigue -= 20
+            time += 120
+        }
+    }
+}
+
+_provenance {
+    sources = [{ type = common_sense, id = rest_recovery, confidence = 0.95 }]
+    model = seed
+    verified = true
+    reviewer = manu
+}

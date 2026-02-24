@@ -1,0 +1,67 @@
+plan flee_danger [survival, combat] {
+
+    params {
+        threat = EntityRef
+    }
+
+    # Planner auto-inserts when survival drive detects lethal threat
+    # and agent's combat_power is insufficient.
+
+    method run {
+        needs { self.Movement.Speed > 0 }
+        bolt: do move_to { destination = self.location.adjacent }
+        outcomes {
+            NOT co_located(self, $threat), prob = sigmoid(self.Movement.Speed / $threat.Movement.Speed)
+            self.Vitals.Stamina -= 20
+            time += 2
+        }
+    }
+
+    method hide {
+        needs { self.Skills.stealth > 10 }
+        find_cover: do Sense.Direct { target = self.location }
+        conceal:    do Move.Direct { destination = $cover }
+        outcomes {
+            NOT visible(self, $threat), prob = sigmoid(self.Skills.stealth * 0.02 - $threat.Skills.observation * 0.01)
+            time += 5
+        }
+    }
+
+    method barricade {
+        needs { co_located(self, $door) AND $door.has(Physical) }
+        shut:  do Modify.Direct { target = $door }
+        brace: do Modify.Direct { target = $door }
+        outcomes {
+            NOT co_located(self, $threat), prob = 0.7
+            time += 5
+        }
+    }
+
+    method surrender {
+        needs { co_located(self, $threat) AND $threat.has(Person) }
+        yield: do Influence.Direct { target = $threat, intent = surrender }
+        outcomes {
+            NOT hostile($threat, self), prob = 0.4
+            alive(self), prob = 0.8
+            time += 2
+        }
+    }
+
+    method diversion {
+        needs { accessible(self, $distraction) }
+        throw:  do Modify.Direct { target = $distraction }
+        escape: do move_to { destination = self.location.adjacent }
+        outcomes {
+            NOT co_located(self, $threat), prob = 0.6
+            NOT accessible(self, $distraction)
+            time += 5
+        }
+    }
+}
+
+_provenance {
+    sources = [{ type = common_sense, id = threat_response, confidence = 0.9 }]
+    model = seed
+    verified = true
+    reviewer = manu
+}

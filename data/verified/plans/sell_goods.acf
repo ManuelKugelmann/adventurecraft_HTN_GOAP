@@ -1,0 +1,55 @@
+plan sell_goods [economic, universal] {
+
+    params {
+        goods = ObjectRef
+    }
+
+    # Dispose of goods for currency. Planner uses when agent
+    # needs money (affordable() fails for something they want).
+
+    method sell_at_market {
+        needs {
+            accessible(self, $goods) AND self.knows(location_of($market))
+            AND self.knows(price_of($goods, $market))
+        }
+        travel:    do move_to { destination = $market }
+        negotiate: do Transfer.Indirect { target = $market.buyer, item = $goods }
+        outcomes {
+            self.inventory.currency += price_of($goods, $market)
+            NOT accessible(self, $goods)
+            time += distance(self, $market) / self.Movement.Speed + 10
+        }
+    }
+
+    method sell_to_passerby {
+        needs { accessible(self, $goods) AND co_located(self, $buyer) }
+        offer: do Influence.Direct { target = $buyer, intent = buy_goods }
+        trade: do Transfer.Indirect { target = $buyer, item = $goods }
+        outcomes {
+            self.inventory.currency += price_of($goods, $buyer) * 0.7
+            NOT accessible(self, $goods)
+            time += 10
+        }
+    }
+
+    method fence_stolen {
+        needs {
+            accessible(self, $goods) AND self.knows(location_of($fence))
+            AND NOT owns(self, $goods)
+        }
+        travel:    do move_to { destination = $fence.location }
+        negotiate: do Transfer.Indirect { target = $fence, item = $goods }
+        outcomes {
+            self.inventory.currency += price_of($goods, $fence) * 0.3
+            NOT accessible(self, $goods)
+            time += distance(self, $fence.location) / self.Movement.Speed + 15
+        }
+    }
+}
+
+_provenance {
+    sources = [{ type = common_sense, id = commerce_selling, confidence = 0.9 }]
+    model = seed
+    verified = true
+    reviewer = manu
+}

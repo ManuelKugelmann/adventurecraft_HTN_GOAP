@@ -1,0 +1,60 @@
+plan ask_directions [social, information, movement] {
+
+    params {
+        destination = SpatialRef
+    }
+
+    # How agents learn routes they don't already know.
+    # Chains: move_to.walk needs route knowledge → planner inserts this.
+
+    method ask_local {
+        needs { co_located(self, $local) AND NOT hostile($local, self) }
+        ask: do Influence.Direct { target = $local, intent = share_knowledge, about = route_to($destination, walking) }
+        outcomes {
+            self.knows(route_to($destination, walking)), prob = 0.7
+            edge(self, $local, familiarity) += 0.02
+            time += 5
+        }
+    }
+
+    method read_sign {
+        needs { co_located(self, $sign) AND $sign.has(Readable) }
+        read: do Sense.Direct { target = $sign }
+        outcomes {
+            self.knows(route_to($destination, walking)), prob = 0.5
+            time += 2
+        }
+    }
+
+    method consult_map {
+        needs { accessible(self, $map) AND $map.has(Readable) }
+        study: do Sense.Structured { target = $map }
+        outcomes {
+            self.knows(route_to($destination, walking)), prob = 0.8
+            self.knows(route_to($destination, riding)), prob = 0.6
+            time += 10
+        }
+    }
+
+    method hire_guide {
+        needs {
+            self.knows(location_of($guide))
+            AND $guide.knows(route_to($destination, walking))
+            AND affordable(self, $guide.fee)
+        }
+        find:      do move_to { destination = $guide.location }
+        negotiate: do influence_person { target = $guide, intent = guide_service }
+        outcomes {
+            self.knows(route_to($destination, walking)), prob = 0.9
+            self.inventory.currency -= $guide.fee
+            time += distance(self, $guide.location) / self.Movement.Speed + 10
+        }
+    }
+}
+
+_provenance {
+    sources = [{ type = common_sense, id = navigation_knowledge, confidence = 0.9 }]
+    model = seed
+    verified = true
+    reviewer = manu
+}

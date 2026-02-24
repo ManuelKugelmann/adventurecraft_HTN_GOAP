@@ -1,0 +1,63 @@
+plan tend_wound [survival, medical] {
+
+    params {
+        patient = EntityRef
+    }
+
+    # Planner auto-inserts when health drops below safe threshold.
+    # Can target self or others.
+
+    method bandage {
+        needs { accessible(self, $bandage) AND $bandage.has(Medical) }
+        apply: do Modify.Direct { target = $patient, equipment = $bandage }
+        outcomes {
+            $patient.Vitals.Health += 15
+            $patient.Vitals.Bleeding -= 30
+            NOT accessible(self, $bandage)
+            time += 5
+        }
+    }
+
+    method herbal_remedy {
+        needs {
+            accessible(self, $herbs) AND $herbs.has(Medicinal)
+            AND self.knows(recipe_for($poultice))
+        }
+        prepare: do Modify.Structured { target = $herbs, recipe = $poultice }
+        apply:   do Modify.Direct { target = $patient, equipment = $poultice }
+        outcomes {
+            $patient.Vitals.Health += 25
+            $patient.Vitals.Bleeding -= 40
+            time += 30
+        }
+    }
+
+    method seek_healer {
+        needs { self.knows(location_of($healer)) AND $healer.Skills.medicine > 30 }
+        travel: do move_to { destination = $healer.location }
+        treat:  do influence_person { target = $healer, intent = heal_patient }
+        outcomes {
+            $patient.Vitals.Health += 40
+            $patient.Vitals.Bleeding -= 60
+            self.inventory.currency -= $healer.fee, prob = 0.8
+            time += distance(self, $healer.location) / self.Movement.Speed + 30
+        }
+    }
+
+    method rest_it_off {
+        needs { }
+        wait: do rest { location = self.location }
+        outcomes {
+            $patient.Vitals.Health += 5
+            $patient.Vitals.Bleeding -= 5
+            time += 480
+        }
+    }
+}
+
+_provenance {
+    sources = [{ type = common_sense, id = wound_treatment, confidence = 0.9 }]
+    model = seed
+    verified = true
+    reviewer = manu
+}

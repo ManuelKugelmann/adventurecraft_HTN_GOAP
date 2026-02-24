@@ -31,7 +31,7 @@ plan acquire_item [economic, universal] {
     method steal {
         needs { self.knows(location_of($source)) AND NOT visible(self, $source.owner) }
         approach: do move_to { destination = $source.location }
-        grab:     do Transfer.Direct { source = $source.location, secrecy = 0.9 }
+        grab:     do Transfer.Direct { source = $source.location }
         flee:     do move_to { destination = self.location.adjacent }
         outcomes {
             accessible(self, $source), prob = 0.7

@@ -1,0 +1,58 @@
+plan find_work [economic, social] {
+
+    params {
+        employer = EntityRef
+    }
+
+    # How agents earn money. Planner inserts when agent needs
+    # currency but has none. Chains: find_work → do_job → get_paid.
+
+    method apply_to_employer {
+        needs {
+            self.knows(location_of($employer))
+            AND NOT hostile($employer, self)
+        }
+        travel: do move_to { destination = $employer.location }
+        ask:    do influence_person { target = $employer, intent = hire }
+        outcomes {
+            edge(self, $employer, employment) > 0, prob = 0.5
+            time += distance(self, $employer.location) / self.Movement.Speed + 10
+        }
+    }
+
+    method ask_around {
+        needs { co_located(self, $local) AND NOT hostile($local, self) }
+        inquire: do influence_person { target = $local, intent = share_knowledge }
+        outcomes {
+            self.knows(location_of($employer)), prob = 0.4
+            time += 10
+        }
+    }
+
+    method check_notice_board {
+        needs { co_located(self, $board) AND $board.has(Readable) }
+        read: do Sense.Direct { target = $board }
+        outcomes {
+            self.knows(location_of($employer)), prob = 0.6
+            time += 5
+        }
+    }
+
+    method day_labor {
+        needs { co_located(self, $gathering_point) }
+        wait:  do Sense.Indirect { target = $gathering_point }
+        offer: do Influence.Direct { target = $employer, intent = hire }
+        outcomes {
+            self.inventory.currency += $employer.day_wage, prob = 0.4
+            self.Vitals.Stamina -= 40
+            time += 480
+        }
+    }
+}
+
+_provenance {
+    sources = [{ type = common_sense, id = employment_seeking, confidence = 0.85 }]
+    model = seed
+    verified = true
+    reviewer = manu
+}

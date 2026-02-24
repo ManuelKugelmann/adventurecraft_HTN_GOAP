@@ -1,0 +1,45 @@
+plan greet [social, universal] {
+
+    params {
+        target = EntityRef
+    }
+
+    # Basic social interaction. Builds familiarity.
+    # Planner uses this when belonging drive wants contact.
+
+    method friendly {
+        needs { NOT hostile($target, self) AND co_located(self, $target) }
+        hail: do Influence.Direct { target = $target, intent = greet }
+        outcomes {
+            edge(self, $target, familiarity) += 0.05
+            edge($target, self, disposition) += 0.02
+            time += 2
+        }
+    }
+
+    method formal {
+        needs { co_located(self, $target) AND authority_over($target, self) }
+        bow: do Influence.Direct { target = $target, intent = show_respect }
+        outcomes {
+            edge(self, $target, familiarity) += 0.02
+            edge($target, self, disposition) += 0.05
+            time += 2
+        }
+    }
+
+    method wary {
+        needs { co_located(self, $target) AND edge(self, $target, familiarity) < 0.1 }
+        nod: do Influence.Direct { target = $target, intent = acknowledge }
+        outcomes {
+            edge(self, $target, familiarity) += 0.01
+            time += 1
+        }
+    }
+}
+
+_provenance {
+    sources = [{ type = common_sense, id = social_greeting, confidence = 0.95 }]
+    model = seed
+    verified = true
+    reviewer = manu
+}

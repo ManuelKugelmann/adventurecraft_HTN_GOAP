@@ -1,0 +1,61 @@
+plan eat [survival, universal] {
+
+    params {
+        food = ObjectRef
+    }
+
+    # Planner auto-inserts when hunger exceeds threshold.
+    # Chains: if no food accessible, planner inserts acquire_item for food.
+
+    method eat_carried {
+        needs { accessible(self, $food) AND $food.has(Edible) }
+        consume: do Modify.Direct { target = $food, consume = true }
+        outcomes {
+            self.Vitals.Hunger -= $food.Edible.nutrition
+            NOT accessible(self, $food)
+            time += 5
+        }
+    }
+
+    method eat_at_table {
+        needs { accessible(self, $food) AND accessible(self, $table) AND $table.has(Furniture) }
+        sit:     do Modify.Direct { target = $table }
+        consume: do Modify.Direct { target = $food, consume = true }
+        outcomes {
+            self.Vitals.Hunger -= $food.Edible.nutrition * 1.2
+            self.Vitals.Stamina += 5
+            NOT accessible(self, $food)
+            time += 30
+        }
+    }
+
+    method cook_then_eat {
+        needs { accessible(self, $raw_food) AND accessible(self, $fire) AND $fire.has(Burning) }
+        prepare: do Modify.Indirect { target = $raw_food, equipment = $fire }
+        consume: do Modify.Direct { target = $raw_food, consume = true }
+        outcomes {
+            self.Vitals.Hunger -= $raw_food.Edible.nutrition * 1.5
+            NOT accessible(self, $raw_food)
+            time += 30
+        }
+    }
+
+    method forage_and_eat {
+        needs { self.location.has(Vegetation) }
+        search:  do Sense.Direct { target = self.location }
+        gather:  do Transfer.Direct { source = self.location }
+        consume: do Modify.Direct { target = $foraged, consume = true }
+        outcomes {
+            self.Vitals.Hunger -= 20
+            self.Vitals.Health -= 2, prob = 0.1
+            time += 60
+        }
+    }
+}
+
+_provenance {
+    sources = [{ type = common_sense, id = eating_sustenance, confidence = 0.95 }]
+    model = seed
+    verified = true
+    reviewer = manu
+}

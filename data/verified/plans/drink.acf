@@ -1,0 +1,45 @@
+plan drink [survival, universal] {
+
+    params {
+        water = ObjectRef
+    }
+
+    # Planner auto-inserts when thirst exceeds threshold.
+
+    method drink_carried {
+        needs { accessible(self, $water) AND $water.has(Drinkable) }
+        consume: do Modify.Direct { target = $water, consume = true }
+        outcomes {
+            self.Vitals.Thirst -= $water.Drinkable.hydration
+            NOT accessible(self, $water)
+            time += 1
+        }
+    }
+
+    method drink_from_source {
+        needs { co_located(self, $source) AND $source.has(Hydrology) AND $source.Hydrology.potable }
+        kneel:   do Transfer.Direct { source = $source }
+        consume: do Modify.Direct { target = $collected_water, consume = true }
+        outcomes {
+            self.Vitals.Thirst -= 60
+            time += 5
+        }
+    }
+
+    method drink_unsafe {
+        needs { co_located(self, $source) AND $source.has(Hydrology) AND NOT $source.Hydrology.potable }
+        drink: do Transfer.Direct { source = $source }
+        outcomes {
+            self.Vitals.Thirst -= 40
+            self.Vitals.Health -= 10, prob = 0.3
+            time += 5
+        }
+    }
+}
+
+_provenance {
+    sources = [{ type = common_sense, id = hydration, confidence = 0.95 }]
+    model = seed
+    verified = true
+    reviewer = manu
+}

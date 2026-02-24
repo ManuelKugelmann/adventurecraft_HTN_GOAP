@@ -47,7 +47,7 @@ plan neutralize_security [criminal, access] {
     method avoid {
         needs { self.knows(schedule_of($target)) AND self.Skills.stealth > 20 }
         wait:      do Sense.Indirect { target = $target }
-        time_it:   do Move.Direct { destination = $target.blind_spot, secrecy = 0.9 }
+        time_it:   do Move.Direct { destination = $target.blind_spot }
         outcomes {
             NOT visible(self, $target), prob = sigmoid(self.Skills.stealth * 0.02)
             time += 15

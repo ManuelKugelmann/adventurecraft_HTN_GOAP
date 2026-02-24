@@ -1,0 +1,55 @@
+plan guard_location [security, social] {
+
+    params {
+        post = SpatialRef
+    }
+
+    # Role-driven: guard role activates this.
+    # Also used by anyone protecting a camp, home, or goods.
+
+    method patrol {
+        needs { self.knows(layout_of($post)) }
+        walk_route: do Move.Direct { destination = $post.patrol_point }
+        observe:    do Sense.Indirect { target = $post }
+        outcomes {
+            visible(self, nearby($post, 30)), prob = sigmoid(self.Skills.observation * 0.02)
+            time += 30
+        }
+    }
+
+    method stand_watch {
+        needs { co_located(self, $post) }
+        watch: do Sense.Indirect { target = $post }
+        outcomes {
+            visible(self, nearby($post, 15)), prob = sigmoid(self.Skills.observation * 0.02)
+            self.Vitals.Fatigue += 10
+            time += 60
+        }
+    }
+
+    method set_trap {
+        needs { accessible(self, $trap_materials) AND capable(self, traps) }
+        place: do Defense.Structured { target = $post, materials = $trap_materials }
+        outcomes {
+            $post.has(Trapped), prob = sigmoid(self.Skills.traps * 0.02)
+            NOT accessible(self, $trap_materials)
+            time += 30
+        }
+    }
+
+    method with_animal {
+        needs { accessible(self, $animal) AND $animal.Skills.observation > 20 }
+        station: do Modify.Direct { target = $animal }
+        outcomes {
+            visible($animal, nearby($post, 50)), prob = 0.8
+            time += 5
+        }
+    }
+}
+
+_provenance {
+    sources = [{ type = common_sense, id = sentry_duty, confidence = 0.9 }]
+    model = seed
+    verified = true
+    reviewer = manu
+}

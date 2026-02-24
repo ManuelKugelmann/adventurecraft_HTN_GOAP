@@ -1,0 +1,54 @@
+plan trade_gossip [social, information] {
+
+    params {
+        partner = EntityRef
+    }
+
+    # Casual information exchange. Primary way NPCs spread knowledge.
+    # Both parties may learn facts the other knows.
+
+    method chat {
+        needs { co_located(self, $partner) AND NOT hostile($partner, self) }
+        talk: do Influence.Direct { target = $partner, intent = share_news }
+        outcomes {
+            self.knows(nearby($partner.home, 50)), prob = 0.6
+            self.knows(reputation_of($partner.associates)), prob = 0.3
+            edge(self, $partner, familiarity) += 0.05
+            time += 15
+        }
+    }
+
+    method drink_together {
+        needs {
+            co_located(self, $partner) AND co_located(self, $tavern)
+            AND affordable(self, $tavern.drink_price)
+        }
+        buy_round: do Transfer.Indirect { target = $tavern.keeper, item = $payment }
+        talk:      do Influence.Direct { target = $partner, intent = share_news }
+        outcomes {
+            self.knows(nearby($partner.home, 50)), prob = 0.8
+            self.knows(reputation_of($partner.associates)), prob = 0.5
+            self.knows(schedule_of($partner)), prob = 0.3
+            edge(self, $partner, familiarity) += 0.1
+            self.inventory.currency -= $tavern.drink_price * 2
+            time += 60
+        }
+    }
+
+    method eavesdrop {
+        needs { co_located(self, $partner) AND self.Skills.observation > 15 }
+        listen: do Sense.Indirect { target = $partner }
+        outcomes {
+            self.knows(nearby($partner.home, 50)), prob = 0.4
+            self.knows(reputation_of($partner.associates)), prob = 0.2
+            time += 30
+        }
+    }
+}
+
+_provenance {
+    sources = [{ type = common_sense, id = social_information_exchange, confidence = 0.85 }]
+    model = seed
+    verified = true
+    reviewer = manu
+}
