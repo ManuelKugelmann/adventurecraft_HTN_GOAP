@@ -23,7 +23,7 @@ plan establish_cover [deception, social] {
         study_mark:   do Sense.Structured { target = $persona.template }
         rehearse:     do Modify.Direct { target = self.appearance }
         outcomes {
-            accessible(self, $persona), prob = sigmoid(self.Skills.deception * 0.02)
+            accessible(self, $persona), prob = deception_chance(self, $persona.template)
             time += 72
         }
     }

@@ -11,7 +11,7 @@ plan flee_danger [survival, combat] {
         needs { self.Movement.Speed > 0 }
         bolt: do move_to { destination = self.location.adjacent }
         outcomes {
-            NOT co_located(self, $threat), prob = sigmoid(self.Movement.Speed / $threat.Movement.Speed)
+            NOT co_located(self, $threat), prob = chase_chance(self, $threat)
             self.Vitals.Stamina -= 20
             time += 2
         }

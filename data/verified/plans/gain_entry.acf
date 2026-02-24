@@ -21,7 +21,7 @@ plan gain_entry [access, universal] {
         needs { locked($target) AND accessible(self, $lockpicks) AND capable(self, lockpicking) }
         step: do Modify.Direct { target = $target.Locked, tools = $lockpicks }
         outcomes {
-            NOT locked($target), prob = sigmoid(self.Skills.lockpicking * 0.02 - $target.Locked.difficulty * 0.01)
+            NOT locked($target), prob = lockpick_chance(self, $target.Locked)
             $lockpicks.Condition -= 10
             time += 5
         }
@@ -43,7 +43,7 @@ plan gain_entry [access, universal] {
         wait:  do Sense.Indirect { target = $target }
         slip:  do Move.Direct { destination = $target }
         outcomes {
-            co_located(self, $target.interior), prob = sigmoid(self.Skills.stealth * 0.02)
+            co_located(self, $target.interior), prob = 1 - detection_risk(self, nearby($target, 15))
             time += 15
         }
     }

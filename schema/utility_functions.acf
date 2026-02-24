@@ -54,14 +54,108 @@ function co_located(a, b) [ENGINE, core] {
     notes: cheaper than distance < threshold
 }
 
-function detection_risk(actor, observers) [ENGINE, planned] {
-    # Probability that actor is detected by observers during current action.
-    # Engine resolves from: actor.Skills.stealth, actor.equipment.stealth_bonus,
-    # observer.Skills.observation, lighting, concealment, noise, distance.
-    # Plans declare detection as outcome; engine fills in the probability.
+# ── RESOLUTION: adversarial action outcome probabilities ──────────
+# Every contested action resolves through a resolution function.
+# Two contexts:
+#   ESTIMATE — planner uses agent belief state to predict outcome.
+#   SIMULATE — engine uses world truth for actual outcome.
+# Plans reference these; engine implements the actual sigmoid.
+# Pattern: sigmoid(actor_strength - opponent_strength + situational)
+
+function detection_risk(actor, observers) [RESOLUTION, core] {
+    # Probability that actor is detected during current action.
+    # Used in plan outcomes: visible(self, X), prob = detection_risk(self, X)
     returns: float
-    depends: actor.Skills.stealth, actor.equipment, observers.Skills.observation, Lighting, Concealment, Noise
-    notes: replaces inlined sigmoid expressions in plan outcomes
+    actor_strength: actor.Skills.stealth + actor.equipment.stealth_bonus
+    opponent_strength: observers.Skills.observation
+    situational: Lighting.concealment, Noise, distance(actor, observers)
+    resolution: sigmoid(opponent_strength - actor_strength + situational)
+    rule: data/verified/rules/detection.acf
+}
+
+function persuasion_chance(actor, target) [RESOLUTION, core] {
+    # Probability that Influence.Direct (honest appeal) succeeds.
+    # Used in plan outcomes: $target.willing($intent), prob = persuasion_chance(self, $target)
+    returns: float
+    actor_strength: actor.Skills.persuasion + edge(actor, target, familiarity) * 20
+    opponent_strength: target.resistance
+    situational: leverage_bonus, reputation_bonus
+    resolution: sigmoid(actor_strength - opponent_strength + situational)
+}
+
+function deception_chance(actor, target) [RESOLUTION, core] {
+    # Probability that Influence.Indirect (deception) succeeds.
+    # Note: familiarity works AGAINST deceiver (harder to fool someone who knows you).
+    returns: float
+    actor_strength: actor.Skills.deception
+    opponent_strength: target.Skills.observation + edge(target, actor, familiarity) * 10
+    situational: plausibility_bonus, prior_deception_penalty
+    resolution: sigmoid(actor_strength - opponent_strength + situational)
+}
+
+function intimidation_chance(actor, target) [RESOLUTION, core] {
+    # Probability that threat/coercion succeeds.
+    returns: float
+    actor_strength: actor.combat_power + actor.reputation.fear * 10
+    opponent_strength: target.courage * 10 + target.combat_power * 0.5
+    situational: weapon_display_bonus, allies_present_bonus
+    resolution: sigmoid(actor_strength - opponent_strength + situational)
+}
+
+function combat_chance(attacker, defender) [RESOLUTION, core] {
+    # Probability that an attack lands and deals damage.
+    # Melee and ranged resolved by same function with different inputs.
+    returns: float
+    actor_strength: attacker.Skills.melee + attacker.equipment.weapon.damage
+    opponent_strength: defender.Skills.active_defense + defender.equipment.armor.protection
+    situational: terrain_advantage, surprise_bonus, fatigue_penalty
+    resolution: sigmoid(actor_strength - opponent_strength + situational)
+}
+
+function lockpick_chance(actor, lock) [RESOLUTION, planned] {
+    # Probability of defeating a lock without the key.
+    returns: float
+    actor_strength: actor.Skills.lockpicking + actor.equipment.lockpicks.quality
+    opponent_strength: lock.difficulty
+    situational: time_pressure_penalty, lighting_bonus
+    resolution: sigmoid(actor_strength - opponent_strength + situational)
+}
+
+function craft_chance(actor, recipe) [RESOLUTION, planned] {
+    # Probability of successfully crafting/forging/repairing an item.
+    returns: float
+    actor_strength: actor.Skills.crafting + actor.equipment.tools.quality
+    opponent_strength: recipe.difficulty
+    situational: workspace_bonus, materials_quality
+    resolution: sigmoid(actor_strength - opponent_strength + situational)
+}
+
+function observation_chance(actor, target) [RESOLUTION, core] {
+    # Probability of noticing or learning something through observation.
+    returns: float
+    actor_strength: actor.Skills.observation
+    opponent_strength: target.concealment + target.obscurity
+    situational: distance_penalty, lighting_bonus, time_spent_bonus
+    resolution: sigmoid(actor_strength - opponent_strength + situational)
+}
+
+function trade_advantage(buyer, seller) [RESOLUTION, planned] {
+    # How far the final price shifts from fair value.
+    # Returns a multiplier: < 1.0 favors buyer, > 1.0 favors seller.
+    returns: float
+    actor_strength: buyer.Skills.trade + buyer.knowledge_of_price
+    opponent_strength: seller.Skills.trade + seller.knowledge_of_price
+    situational: scarcity_premium, competition_discount, urgency_penalty
+    resolution: sigmoid(opponent_strength - actor_strength + situational)
+}
+
+function chase_chance(pursuer, runner) [RESOLUTION, planned] {
+    # Probability that pursuer catches runner (or runner escapes).
+    returns: float
+    actor_strength: runner.Movement.Speed + runner.Vitals.Stamina * 0.01
+    opponent_strength: pursuer.Movement.Speed + pursuer.Vitals.Stamina * 0.01
+    situational: terrain_familiarity, crowd_density, head_start
+    resolution: sigmoid(actor_strength - opponent_strength + situational)
 }
 
 function edge(a, b, axis) [ENGINE, core] {

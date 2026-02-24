@@ -50,7 +50,7 @@ plan acquire_item [economic, universal] {
         gather:    do acquire_access { node = $materials }
         make:      do Modify.Structured { target = $materials, recipe = $source }
         outcomes {
-            accessible(self, $source), prob = sigmoid(self.Skills.crafting * 0.02)
+            accessible(self, $source), prob = craft_chance(self, $source)
             time += 60
         }
     }

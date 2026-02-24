@@ -38,7 +38,7 @@ plan acquire_information [information, universal] {
         travel:  do move_to { destination = $about.location }
         watch:   do Sense.Indirect { target = $about }
         outcomes {
-            self.knows(properties_of($about)), prob = sigmoid(self.Skills.observation * 0.02)
+            self.knows(properties_of($about)), prob = observation_chance(self, $about)
             time += distance(self, $about.location) / self.Movement.Speed + 60
         }
     }
@@ -47,7 +47,7 @@ plan acquire_information [information, universal] {
         needs { accessible(self, $library) AND $library.has(Knowledge) }
         study: do Sense.Structured { target = $library, about = $about }
         outcomes {
-            self.knows($about), prob = sigmoid(self.Skills.research * 0.02)
+            self.knows($about), prob = observation_chance(self, $library)
             time += 120
         }
     }

@@ -9,7 +9,7 @@ plan influence_person [social, universal] {
         needs { co_located(self, $target) AND NOT hostile($target, self) }
         appeal: do Influence.Direct { target = $target, intent = $intent }
         outcomes {
-            $target.willing($intent), prob = sigmoid(self.Skills.persuasion * 0.02 + edge(self, $target, familiarity) * 0.5)
+            $target.willing($intent), prob = persuasion_chance(self, $target)
             edge(self, $target, familiarity) += 0.05
             time += 10
         }
@@ -33,7 +33,7 @@ plan influence_person [social, universal] {
         }
         intimidate: do Influence.Direct { target = $target, intent = $intent, method = threat }
         outcomes {
-            $target.willing($intent), prob = sigmoid(self.combat_power / $target.combat_power - 0.5)
+            $target.willing($intent), prob = intimidation_chance(self, $target)
             edge(self, $target, disposition) -= 0.3
             time += 5
         }
@@ -43,7 +43,7 @@ plan influence_person [social, universal] {
         needs { co_located(self, $target) AND capable(self, deception) }
         spin: do Influence.Indirect { target = $target, intent = $intent, false = true }
         outcomes {
-            $target.willing($intent), prob = sigmoid(self.Skills.deception * 0.02 - $target.Skills.observation * 0.01)
+            $target.willing($intent), prob = deception_chance(self, $target)
             edge(self, $target, disposition) -= 0.4
             time += 10
         }

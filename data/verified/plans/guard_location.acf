@@ -12,7 +12,7 @@ plan guard_location [security, social] {
         walk_route: do Move.Direct { destination = $post.patrol_point }
         observe:    do Sense.Indirect { target = $post }
         outcomes {
-            visible(self, nearby($post, 30)), prob = sigmoid(self.Skills.observation * 0.02)
+            visible(self, nearby($post, 30)), prob = observation_chance(self, nearby($post, 30))
             time += 30
         }
     }
@@ -21,7 +21,7 @@ plan guard_location [security, social] {
         needs { co_located(self, $post) }
         watch: do Sense.Indirect { target = $post }
         outcomes {
-            visible(self, nearby($post, 15)), prob = sigmoid(self.Skills.observation * 0.02)
+            visible(self, nearby($post, 15)), prob = observation_chance(self, nearby($post, 30))
             self.Vitals.Fatigue += 10
             time += 60
         }
@@ -31,7 +31,7 @@ plan guard_location [security, social] {
         needs { accessible(self, $trap_materials) AND capable(self, traps) }
         place: do Defense.Structured { target = $post, materials = $trap_materials }
         outcomes {
-            $post.has(Trapped), prob = sigmoid(self.Skills.traps * 0.02)
+            $post.has(Trapped), prob = craft_chance(self, $trap)
             NOT accessible(self, $trap_materials)
             time += 30
         }
