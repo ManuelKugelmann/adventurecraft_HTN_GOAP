@@ -467,59 +467,64 @@ also updates `security.secure_vault` to recognize heist patterns.
 Adding `security.secure_vault` also updates `criminal.heist` to
 recognize new security measures.
 
-### Sequential recognition (not just static pattern match)
+### Sequential recognition via reasoning plans
 
 Static observables (garrison size, wall height) are easy to check but
-easy to circumvent. Real detection recognizes **sequences of actions**
-that match a known plan's steps.
+easy to circumvent. Real detection recognizes **sequences of actions**.
+This is what reasoning plans do — their `needs` check knowledge for
+multiple observed actions that together suggest a specific plan.
 
-Counter conditions can reference accumulated observations:
+Counter blocks handle static conditions. Reasoning plans handle
+sequential pattern recognition. The guard's role triggers both:
 
 ```acf
+# Counter block on the vault security plan (static, fast)
 counter criminal.heist {
-    # Static: obvious conditions
     lockdown when garrison < 3 AND time.is_night
+    reinforce when $vault_door.condition < 50
+}
 
-    # Sequential: observed steps matching heist template
-    alert    when observed_steps($subject, criminal.heist) >= 2
-    pursue   when observed_steps($subject, criminal.heist) >= 3
-                  AND visible($subject, $guards)
+# Reasoning plan (sequential, costs planning budget)
+plan reason.vault_threat [reasoning, detection, security] {
+    method infiltration_pattern {
+        needs {
+            self.knows(performed($subject, Sense, target = $post, count >= 2))
+            AND self.knows(performed($subject, acquire_item, type = lockpicks))
+        }
+        assess: do Sense.Structured { target = $subject }
+        outcomes {
+            self.believes(planning($subject, criminal.heist)),
+                prob = observation_chance(self, $subject)
+            time += 8
+        }
+    }
 }
 ```
 
-`observed_steps(observer, subject, plan_id)` counts how many of the
-plan's characteristic actions the observer has *actually perceived*
-(gated by `detection_risk` at each step). A thief who scouts the vault
-(step 1) and acquires lockpicks (step 2) triggers `alert` even if each
-action alone looks innocent. The plan template acts as a detector.
+Counter blocks fire on observable world state (no reasoning needed).
+Reasoning plans fire on accumulated knowledge (requires planning budget).
+Both produce responses — counters via cached lookup, reasoning via
+belief-driven role behaviors.
 
-Prematching: the engine clusters plans with similar observable footprints
-at load time. `criminal.heist` and `criminal.burglary` share early steps
-(scout, acquire tools). An observer who sees those steps gets a partial
-match against both — confidence refines as later steps diverge.
-
-### Three tiers of adversary prediction
+### Adversary prediction tiers
 
 ```
-Tier 0: Counter lookup (cheapest)
-  "observed_steps >= 2 for heist → counter says alert"
-  Pattern match on observables + step count. Retrieve cached response.
-  Any agent can do this. O(1).
+Tier 0: Counter lookup (cheapest, no planning budget)
+  "garrison < 3 and it's night → counter says lockdown"
+  Static observable conditions. O(1). Any agent.
 
-Tier 1: Role-based prediction (medium)
-  "guard detected me → guard role says alert(45) + defend(50) →
-   guard WILL pursue → capture_risk resolves whether they catch me"
-  Read adversary's role from knowledge. Estimate which behaviors fire.
-  Read adversary's counter blocks to see what THEY expect from ME.
-  Resolve outcomes against self via resolution functions. Depth 1.
+Tier 1: Reasoning plan (planning budget required)
+  "I've seen them scout twice and acquire lockpicks →
+   reason.vault_threat concludes heist → alert authority"
+  Sequential pattern matching. Knowledge-based. Trained agents.
 
-Tier 2: Adversary plan simulation (expensive)
+Tier 2: Adversary plan simulation (large planning budget)
   "their leader owes me a debt and morale is low →
    standard counter says lockdown, but I think I can turn the guard
    with bribery + leverage → novel response not in any counter"
   Model adversary drives, relationships, constraints.
-  Read their counter blocks, find gaps or overrides.
-  Run shallow adversary planner (depth 2). Requires deep knowledge.
+  Read their counter blocks and reasoning plans, find gaps.
+  Depth 2 inception. Requires deep knowledge.
 ```
 
 A Tier 1 thief reads the vault's counter blocks: "they expect lockpick
@@ -565,129 +570,135 @@ at depth 2 thinks: "they expect me to go at night (their counter), so
 I'll go during the day. They might adapt, but I can't predict further."
 That's the ceiling. Deeper is infinite regress, not intelligence.
 
-## Plan Detection in the Knowledge Model
+## Reasoning Plans: Thinking as a Plan
 
 An agent's currently executing plan is in `self.knowledge` — but only
 for *self*. No one else can see your plan. Observers see **actions**,
-not plans. Plan detection is inference from observed actions, using the
-observer's own knowledge of what plans exist.
+not plans. Plan detection is inference — and inference is a plan.
 
-### How it works
+### Reasoning is not a built-in function
+
+There is no magic `observed_steps()` or `plan_signature_match()`.
+Pattern matching is explicit: the agent runs a **reasoning plan**
+whose `needs` check knowledge of observed actions. If the needs are
+met, the outcome is a belief. Reasoning costs planning budget.
 
 ```
 1. Actor executes plan step (e.g. gain_entry at $vault_door)
 2. detection_risk world rule fires → observer perceives or doesn't
-3. If perceived: observer.knowledge += "$actor performed gain_entry at $vault_door"
-4. Observer's role has watch behaviors keyed to specific plan templates
-5. observed_steps(observer, actor, plan_id) queries observer's own knowledge:
-   "how many actions in my knowledge about $actor match steps in plan_id?"
-6. When threshold met → role behavior fires (alert, challenge, pursue)
+3. If perceived: observer.knowledge += performed($actor, gain_entry, target = $vault_door)
+4. Observer's role triggers reasoning plan (Sense.Structured — thinking)
+5. Reasoning plan needs: "do I know $subject did A AND B?"
+   Needs checked against observer's knowledge (belief state)
+6. If match → outcome: self.believes(planning($subject, criminal.heist))
+7. Belief triggers role escalation (alert, challenge, pursue)
 ```
 
-The observer never sees the actor's plan. They see actions, accumulate
-facts in their own knowledge, and match those facts against plan
-templates they know about (from training, experience, role).
+### Reasoning plans have needs and outcomes
 
-### `observed_steps` is a knowledge query
-
-`observed_steps(observer, subject, plan_id)` is NOT a special detection
-tracker. It's a query over the observer's knowledge base:
-
-```
-observed_steps(self, $actor, criminal.heist) =
-    count(self.knowledge WHERE
-        subject == $actor
-        AND action_type IN criminal.heist.steps
-        AND time > now - decay_window)
-```
-
-The observer must:
-1. **Know about the plan template** — a guard trained for vault duty
-   knows `criminal.heist` and `criminal.burglary` exist. A farmer doesn't.
-2. **Have perceived the actions** — each action was gated by `detection_risk`
-   at the time it happened. Undetected actions aren't in the observer's knowledge.
-3. **Remember** — old observations decay. A scout seen two weeks ago
-   contributes less than one seen yesterday.
-
-This means plan detection is naturally bounded by the observer's
-knowledge and perception. A vault guard with high observation skill
-and training in heist patterns detects a casing thief. A sleepy gate
-guard with no heist training doesn't — same actions, different knowledge.
-
-### Guard variants are trained watchers
-
-Different guard posts train different counter-awareness. The guard's
-role declares which plan templates they watch for. This is their job
-description:
+A reasoning plan is a regular plan. Its needs check knowledge facts.
+Its outcome is a belief. The `Sense.Structured` step IS the guard
+thinking about what they've seen:
 
 ```acf
-role vault_guard : guard [military, security] {
-    # Knows about heist and burglary patterns (training)
-    watch_suspect: when observed_steps(self, $subject, criminal.heist) >= 1,
-                   do Sense.Indirect { target = $subject },
-                   priority = 25
-    alert_threat:  when observed_steps(self, $subject, criminal.heist) >= 2,
-                   do Influence.Direct { target = $authority },
-                   priority = 45
-}
-
-role gate_guard : guard [military, security] {
-    # Knows about smuggling and unauthorized entry patterns
-    watch_smuggle: when observed_steps(self, $subject, criminal.smuggling) >= 1,
-                   do Sense.Direct { target = $subject.cargo },
-                   priority = 30
-}
-
-role market_guard : guard [military, economic] {
-    # Knows about pickpocket and shoplifting patterns
-    watch_theft:   when observed_steps(self, $subject, criminal.pickpocket) >= 1,
-                   do Sense.Indirect { target = $subject },
-                   priority = 25
+plan reason.match_threat [reasoning, detection] {
+    method heist_pattern {
+        needs {
+            self.knows(performed($subject, acquire_information, about = layout_of($location)))
+            AND self.knows(performed($subject, acquire_item, type = tools))
+        }
+        assess: do Sense.Structured { target = $subject }
+        outcomes {
+            self.believes(planning($subject, criminal.heist)),
+                prob = observation_chance(self, $subject)
+            time += 5
+        }
+    }
 }
 ```
 
-The plan template ID in `observed_steps` does double duty:
-- It's the plan the guard is trained to recognize (knowledge)
-- It's the plan whose counter block fires if the threshold is met
+The guard doesn't magically detect a heist. They:
+1. **Observed** someone casing the layout (Sense.Indirect during patrol)
+2. **Observed** the same person acquiring tools (another perceived action)
+3. Both facts entered the guard's knowledge (gated by detection_risk)
+4. Guard is alert → runs reasoning plan → needs check knowledge
+5. Both conditions met → concludes "this person is planning a heist"
+6. Belief triggers escalation behaviors
 
-A vault guard who witnesses `acquire_information { about = layout }` +
-`acquire_item { source = lockpicks }` has `observed_steps = 2` for
-`criminal.heist`. Their `alert_threat` behavior fires. A gate guard
-seeing the same actions has `observed_steps = 0` for
-`criminal.smuggling` — different template, no match, no alert.
+### Planning budget limits reasoning depth
 
-### Escalation ladder
+Each agent has limited planning resources per tick. Reasoning plans
+consume that budget. This naturally creates the intelligence hierarchy:
 
-Guard behaviors form a natural escalation from observation to force:
+- **Simple guard**: Small budget. Can run base `reason.match_threat`
+  with broad pattern methods. Recognizes obvious threats (armed group
+  approaching, someone picking a lock). Misses subtle patterns.
+- **Trained vault guard**: More budget. Can run `reason.vault_threat`
+  with specialized methods that distinguish classic heist from solo
+  infiltration from inside job. Catches casing behavior.
+- **Master investigator**: Large budget. Can run deep reasoning,
+  cross-reference multiple subjects, consider temporal patterns,
+  chain evidence. Catches long cons and inside jobs.
+
+The tiers aren't artificial labels — they emerge from planning budget.
+An agent that can't afford to run a reasoning plan this tick simply
+doesn't think about it. They fall back to reactive role behaviors
+(base guard: react to witnessed crimes, threat levels).
+
+### Specialized reasoning variants
+
+Base reasoning (`reason.match_threat`) has broad methods for common
+threat patterns. Specialized variants add domain-specific analysis:
+
+- `reason.vault_threat` — distinguishes heist methods (classic crew,
+  solo infiltration, inside job, smash-and-grab, security probing)
+- `reason.route_threat` — recognizes ambush patterns (prepared ambush,
+  bandit scout, unusual quiet, roadblock)
+- Future: `reason.market_threat`, `reason.diplomatic_threat`, etc.
+
+Guard roles reference the appropriate reasoning plan. A vault_guard
+triggers `reason.vault_threat` when suspicious. A caravan_guard
+triggers `reason.route_threat`. The reasoning plan IS the guard's
+training — what patterns they know how to recognize.
+
+### Guard role three-phase cycle
+
+Guard variants follow a consistent pattern:
 
 ```
-observed_steps = 0:  routine patrol / scan (base guard)
-observed_steps = 1:  focus attention on subject (Sense, watch)
-observed_steps >= 2: alert authority, challenge subject (Influence)
-observed_steps >= 3: confront / arrest (Attack.Indirect / Defense)
-threat_level > 70:   defend with force (inherited from base guard)
+Phase 1: OBSERVE — Sense actions feed knowledge
+  scan_area:     do Sense.Indirect { target = nearby(self, 30) }
+
+Phase 2: REASON — when suspicious, run reasoning plan
+  assess_threat: when self.alert OR self.knows(performed($subject, ...)),
+                 do Sense.Structured { target = $subject }
+
+Phase 3: ESCALATE — beliefs trigger action
+  alert_heist:   when self.believes(planning($subject, criminal.heist)),
+                 do Influence.Direct { target = $authority }
 ```
 
-The thresholds are per-variant and per-plan. A vault guard escalates
-faster for heist patterns than a gate guard does for smuggling patterns,
-because the stakes are higher.
+The three phases map to role behaviors at different priorities:
+- Observe: low priority (5-10), runs during routine patrol
+- Reason: medium priority (20-25), runs when input triggers suspicion
+- Escalate: high priority (35-50), runs when reasoning produces belief
 
 ### What the thief sees (Tier 1+)
 
 A Tier 1+ thief reasoning about the vault guard:
 
 1. "I know there's a vault_guard role"
-2. "vault_guard watches for `criminal.heist` (I can read their role)"
-3. "Their `alert_threat` fires at `observed_steps >= 2`"
-4. "So I need to keep my observable heist steps below 2, or make sure
-   each step passes detection_risk — i.e., they don't see me do it"
-5. "Their `scan_area` uses Sense.Indirect with range 30 — I need to
-   stay beyond 30 or have stealth > their observation"
+2. "vault_guard triggers `reason.vault_threat` when suspicious"
+3. "That plan's `infiltration_pattern` method needs:
+   `self.knows(performed($subject, Sense, target = $post, count >= 2))`"
+4. "So if they see me scope the vault twice, they'll conclude heist"
+5. "I need to ensure each recon pass beats detection_risk,
+   OR case the vault from a distance (beyond their Sense.Indirect range),
+   OR disguise my visits as legitimate activity"
 
-The counter backreference is the thief reading the guard's role to
-understand their detection thresholds and blind spots. This is why
-bidirectional awareness matters — the guard's training (what plans
-they watch for) IS the data the thief reads to plan around them.
+The thief reads the guard's reasoning plan to understand what patterns
+trigger their suspicion — and deliberately avoids those patterns.
+This is the bidirectional counter-reference at the reasoning level.
 
 ## Open Questions
 
@@ -696,5 +707,4 @@ they watch for) IS the data the thief reads to plan around them.
 - How does knowledge staleness work? (fact was true when learned, no longer is)
 - Should `outcomes` on composite plans be declared or computed from sub-plans?
 - How do agents share knowledge? (telling, teaching, written records)
-- How should agent intelligence tier (Tier 0/1/2) be determined? Skill-based? Trait?
-- Should guard training (which plan templates they know) be part of the role or a separate knowledge source?
+- How should planning budget per tick scale? Fixed per-agent, skill-based, trait-based?

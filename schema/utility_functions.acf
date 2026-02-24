@@ -186,11 +186,11 @@ function edge(a, b, axis) [ENGINE, core] {
 # A law is a shared contract. Enforcement = role behavior of authorized agents.
 #
 # Plan outcomes express only resolution links. The planner fills in
-# behavioral links at runtime via three tiers:
-#   Tier 0: Counter lookup — cached predictions annotated on plans (fast)
-#   Tier 1: Role prediction — read adversary role from knowledge (depth 1)
-#   Tier 2: Plan simulation — model adversary drives/plans (depth 2, max)
-# Simple agents stop at Tier 0. Smarter agents go deeper.
+# behavioral links at runtime by consulting its knowledge of the
+# adversary's role. Plan recognition uses reasoning plans (explicit
+# needs checking knowledge of observed actions), not magic functions.
+# Planning budget per tick limits reasoning depth — simple agents
+# can only afford basic reasoning, smart agents run deep variants.
 # See docs/plan_architecture.md "Adversary Response Chains".
 
 function identification_risk(actor, observer) [RESOLUTION, planned] {
@@ -319,6 +319,19 @@ function layout_of(location) [KNOWLEDGE, planned] {
 function reputation_of(person) [KNOWLEDGE, candidate] {
     # Public standing of a person (what agent has heard)
     # Gates: social approach selection
+    returns: fact
+}
+
+function performed(subject, action_type) [KNOWLEDGE, planned] {
+    # Agent observed subject performing an action of this type.
+    # Perception-gated: only enters knowledge if detection_risk was passed
+    # at the time the action happened. Structured fact with params:
+    #   performed($subject, acquire_information, about = $location)
+    #   performed($subject, gain_entry, target = $door)
+    #   performed($subject, Transfer, concealed = true)
+    # Used in reasoning plan needs to match observed behavior patterns.
+    # Decays with time: old observations fade from knowledge.
+    # Gates: reasoning plans (reason.match_threat, etc.)
     returns: fact
 }
 
@@ -479,68 +492,9 @@ function can_enter(self, location) [PLAN, candidate] {
     resolves_to: exists method in gain_entry where method.needs(self, location)
 }
 
-# ── DETECTION: plan recognition from observed actions ──────────────
-# These are knowledge queries, not special detection trackers.
-# An observer perceives actions (gated by detection_risk). Those become
-# facts in the observer's knowledge. These functions query that knowledge
-# against plan templates the observer knows about (from training/role).
-#
-# The observer never sees the actor's plan directly. Plans are private.
-# Plan detection is inference: "I've seen actions A, B, C from this actor.
-# I know plan X has steps A, B, C, D. Confidence = 3/4."
-#
-# Guard roles declare which plan templates they watch for. A vault_guard
-# knows criminal.heist exists; a farmer doesn't. Same observed actions,
-# different knowledge → different detection.
-#
-# Prematching: the engine clusters plans by step similarity at load time.
-# At runtime it checks only the matching cluster, not every plan.
-# Plans sharing early steps (heist vs burglary) cluster together —
-# confidence refines as later steps diverge.
-
-function observed_steps(observer, subject, plan_id) [DETECTION, planned] {
-    # Query observer's knowledge: how many actions have I perceived
-    # from subject that match steps in plan_id?
-    returns: int
-    resolves_to: count(observer.knowledge WHERE
-                       subject == $subject
-                       AND action_type IN plan_id.steps
-                       AND time > now - decay_window)
-    notes: observer must know plan_id exists (training, role, experience).
-           perception-gated — each action entered knowledge only if
-           detection_risk was passed at the time it happened.
-           Decays with time: old observations contribute less.
-           Used in role behaviors: "when observed_steps >= 2 → alert"
-           Used in counter conditions: "alert when observed_steps >= 2"
-}
-
-function plan_signature_match(observer, subject) [DETECTION, planned] {
-    # Query observer's knowledge against ALL plan templates the observer
-    # knows about. Return best matches. Uses prematched clusters.
-    returns: list of (plan_id, confidence)
-    resolves_to: for each known_plan, score = observed_steps(observer, subject, plan) / plan.step_count
-    notes: confidence is proportion of plan steps matched, weighted by
-           recency. Multiple plans may match (heist vs burglary share
-           early steps). Only checks plans the observer knows about.
-           A vault_guard checks heist + burglary. A gate_guard checks
-           smuggling + unauthorized entry. Different training, different
-           template set.
-}
-
-function recognition_confidence(observer, subject, plan_id) [DETECTION, planned] {
-    # How confident is observer that subject is executing plan_id?
-    # Combines observed_steps with contextual priors.
-    returns: float
-    resolves_to: observed_steps(observer, subject, plan_id) / plan_id.step_count
-                 * prior(subject, plan_id)
-    notes: prior comes from subject's known role, faction, history.
-           A known thief near a vault has higher prior for heist than
-           a merchant. Observer's knowledge of subject matters.
-}
-
 _provenance {
     type: design_catalog
     status: draft
     purpose: collect utility function candidates for needs/outcomes evaluation
-    categories: ENGINE is world-truth, KNOWLEDGE is belief-state, DERIVED is data-only, SUGAR is shorthand, PLAN is planner query, DETECTION is plan recognition
+    categories: ENGINE is world-truth, KNOWLEDGE is belief-state, DERIVED is data-only, SUGAR is shorthand, PLAN is planner query
 }

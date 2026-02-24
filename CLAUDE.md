@@ -249,20 +249,14 @@ docs/            spec, summary, source catalog
 - Counters are **bidirectional**: offense counters defense, defense counters offense.
   `secure_vault` has counters for heist patterns. `criminal.heist` has counters for
   vault security. Each references the opposing plan by ID.
-- Counter conditions can use `observed_steps(observer, subject, plan_id)` for sequential
-  detection — matching accumulated action observations against a plan template, not just
-  static observables. Prematched plan clusters avoid checking every plan in the library.
-- `observed_steps` is a knowledge query, not a special tracker: it counts how many actions
-  the observer has *perceived* (via `detection_risk`) that match steps in a known plan template.
-  Observer must know the plan template exists (training/experience) to match against it.
+- Counter conditions ONLY reference observable state (pos, weight, faction, garrison,
+  walls, equipped, visible actions, terrain). NEVER: drives, plans, knowledge, mood, skills.
 - Counters are NOT the only way adversaries respond. They cover archetypal patterns.
   Agents with deeper knowledge can predict novel responses beyond the catalog.
 - Three tiers: Tier 0 (counter lookup, O(1)), Tier 1 (role-based prediction, depth 1),
   Tier 2 (adversary plan simulation, depth 2). Simple agents stop at Tier 0.
 - Tier 1+ agents read the adversary's counter blocks to see what they expect,
   then deliberately subvert it. The backreference enables strategic reasoning.
-- Counter conditions ONLY reference observable state (pos, weight, faction, garrison,
-  walls, equipped, visible actions, terrain). NEVER: drives, plans, knowledge, mood, skills.
 - Adversary behavioral responses (guard raises alarm, authority investigates) are NOT
   world rules. They are role-driven decisions. The planner predicts them from knowledge
   of the adversary's role and drives.
@@ -270,21 +264,35 @@ docs/            spec, summary, source catalog
 - Authorities/laws/mob = implicit contracts. A warrant is Influence.Structured.
 - Inception depth limit: max 2 levels. No infinite regress.
 
+### Reasoning plans and plan recognition
+
+- Plan detection is NOT a built-in function. There is no magic `observed_steps()`.
+  Pattern matching is explicit: agents run **reasoning plans** whose `needs` check
+  knowledge of observed actions. Reasoning is thinking — it costs planning budget.
+- `performed($subject, action_type, params)` is a KNOWLEDGE fact. Perception-gated:
+  only enters observer's knowledge if `detection_risk` was passed when it happened.
+- Reasoning plans produce **beliefs** as outcomes:
+  `self.believes(planning($subject, criminal.heist))`. Beliefs trigger role escalation.
+- Base reasoning: `reason.match_threat` — broad patterns (heist, burglary, smuggling,
+  ambush, pickpocket, confidence scheme). Any trained agent can use.
+- Specialized reasoning: `reason.vault_threat` (heist method distinction),
+  `reason.route_threat` (ambush pattern analysis). Requires domain training.
+- Planning budget per tick limits reasoning depth. Simple agents can't afford deep
+  reasoning plans. Smart agents run specialized variants. Budget = intelligence.
+
 ### Guard variants and role-driven detection
 
 - Guard roles are specialized by post. Each variant inherits base guard behaviors
-  (patrol, alert, defend, arrest, report) and adds active watching for specific
-  plan templates relevant to their assignment.
-- `vault_guard` watches for `criminal.heist`, `criminal.burglary`.
-  `gate_guard` watches for `criminal.smuggling`, unauthorized entry.
-  `market_guard` watches for `criminal.pickpocket`, `criminal.shoplifting`.
-  `caravan_guard` watches for `military.ambush`, `criminal.banditry`.
-- The plan template ID in the guard's role behavior is both what they're trained to
-  recognize AND the plan whose counter block fires if the threshold is met.
-- Escalation ladder: `observed_steps = 0` → routine patrol; `= 1` → focus Sense on
-  subject; `>= 2` → alert authority / challenge; `>= 3` → confront / arrest.
-- A guard who doesn't know a plan template exists can't match against it.
-  A farmer witnessing the same heist steps as a vault guard won't recognize the pattern.
+  (patrol, alert, defend, arrest, report) and adds a three-phase cycle:
+  **Observe** (Sense actions feed knowledge) → **Reason** (reasoning plan matches
+  patterns) → **Escalate** (beliefs trigger alert/challenge/pursue).
+- `vault_guard` uses `reason.vault_threat` to distinguish heist methods.
+  `gate_guard` reasons about smuggling and unauthorized entry.
+  `market_guard` reasons about theft and confidence schemes.
+  `caravan_guard` uses `reason.route_threat` for ambush patterns.
+- A guard who hasn't been trained (doesn't know the reasoning plan) can't recognize
+  the pattern. A farmer witnessing the same actions as a vault guard won't conclude
+  "heist" — they don't have the reasoning plan in their repertoire.
 
 ### World rules
 

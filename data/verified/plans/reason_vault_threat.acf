@@ -1,0 +1,104 @@
+# ── Vault Threat Reasoning ───────────────────────────────────────
+# Specialized reasoning for vault/treasury guards. Deeper pattern
+# analysis that distinguishes heist methods (classic crew, solo
+# infiltration, inside job, smash and grab).
+#
+# Requires more planning budget than base reason.match_threat.
+# Only vault_guard roles have the training to use these methods.
+
+plan reason.vault_threat [reasoning, detection, security] {
+
+    params {
+        subject = PersonRef
+        post = SpatialRef
+    }
+
+    # ── Classic crew heist ──────────────────────────────────────
+    # Subject gathered intel on layout + schedule + recruited crew
+    method classic_heist_pattern {
+        needs {
+            self.knows(performed($subject, acquire_information, about = layout_of($post)))
+            AND self.knows(performed($subject, acquire_information, about = schedule_of($post.guards)))
+            AND self.knows(count(co_located($subject, AlliedWith)) >= 3)
+        }
+        assess: do Sense.Structured { target = $subject }
+        outcomes {
+            self.believes(planning($subject, criminal.heist)),
+                prob = observation_chance(self, $subject)
+            time += 10
+        }
+    }
+
+    # ── Solo infiltration ───────────────────────────────────────
+    # Lone subject repeatedly observing the post + acquired lockpicks
+    method infiltration_pattern {
+        needs {
+            self.knows(performed($subject, Sense, target = $post, count >= 2))
+            AND self.knows(performed($subject, acquire_item, type = lockpicks))
+            AND NOT self.knows(co_located($subject, AlliedWith))
+        }
+        assess: do Sense.Structured { target = $subject }
+        outcomes {
+            self.believes(planning($subject, criminal.heist)),
+                prob = observation_chance(self, $subject)
+            time += 8
+        }
+    }
+
+    # ── Inside job ──────────────────────────────────────────────
+    # Trusted insider meeting with unknown outsider + behavior change
+    method inside_job_pattern {
+        needs {
+            self.knows(performed($insider, Influence, target = $unknown, frequency >= 3))
+            AND co_located($insider, $post)
+            AND self.knows($insider.behavior_changed)
+        }
+        assess: do Sense.Structured { target = $insider }
+        outcomes {
+            self.believes(planning($unknown, criminal.heist)),
+                prob = observation_chance(self, $insider) * 0.5
+            time += 15
+        }
+    }
+
+    # ── Smash and grab ──────────────────────────────────────────
+    # Armed group approaching fast + heavy equipment
+    method smash_grab_pattern {
+        needs {
+            self.knows(performed($group, Move, destination = $post, speed = fast))
+            AND (self.knows($group.equipped(ram)) OR self.knows($group.combat_power > 30))
+        }
+        assess: do Sense.Structured { target = $group }
+        outcomes {
+            self.believes(planning($group, criminal.heist)),
+                prob = observation_chance(self, $group)
+            time += 2
+        }
+    }
+
+    # ── Security probing ───────────────────────────────────────
+    # Someone testing locks, checking alarm triggers, timing patrols
+    # Not a full heist pattern yet — early warning
+    method security_probe_pattern {
+        needs {
+            self.knows(performed($subject, Sense, target = $post.security))
+            OR self.knows(performed($subject, Modify, target = $post.locks, intent = test))
+        }
+        assess: do Sense.Structured { target = $subject }
+        outcomes {
+            self.believes(probing($subject, $post)),
+                prob = observation_chance(self, $subject)
+            time += 5
+        }
+    }
+}
+
+_provenance {
+    sources = [
+        { type = design_pattern, id = vault_threat_recognition, confidence = 0.8 },
+        { type = research, id = sandia_hmcd_heist_study, confidence = 0.85 }
+    ]
+    model = seed
+    verified = true
+    reviewer = manu
+}
