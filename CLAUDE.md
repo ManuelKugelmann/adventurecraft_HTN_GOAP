@@ -187,3 +187,63 @@ docs/            spec, summary, source catalog
 - `outcomes` are probabilistic and include goal, side effects, and costs (including `time +=`)
 - Top-level plans compose sub-plans; leaves have concrete `do` steps; methods may mix both
 - Utility functions cataloged in `schema/utility_functions.acf`
+- World rules cataloged in `schema/world_rules.acf`
+- Resolution functions cataloged in `schema/utility_functions.acf` under RESOLUTION category
+
+## Data Creation Guidelines
+
+### Composition hierarchy
+
+- **Composite plans** (high-level) reference ONLY sub-plans. No concrete `do Action.Approach` steps.
+  If there are multiple ways to accomplish a step, it MUST be a sub-plan reference.
+- **Leaf plans** contain concrete `do Action.Approach` steps. These are the bottom of the tree.
+- **Methods** may mix sub-plan references and concrete actions when some steps have exactly
+  one approach and others have multiple approaches.
+- Build from BOTH directions: top-down (decompose goals into sub-plans) and bottom-up
+  (build reusable leaf plans for common problems).
+
+### Secrecy and action modifiers
+
+- Secrecy is an action modifier that flows from agent state, NOT a per-step parameter.
+  Do NOT write `do Move.Direct { destination = X, secrecy = 0.9 }`.
+- The engine applies secrecy as a modifier to all actions based on the agent's current
+  stealth skill, equipment, situation (lighting, concealment, noise).
+- Plans declare detection as an outcome: `visible(self, X), prob = detection_risk(self, X)`.
+  The engine resolves the actual probability.
+
+### Resolution functions for contested actions
+
+- ALL adversarial/contested outcomes MUST use a named resolution function, not inlined sigmoids.
+- Resolution functions follow the pattern: `sigmoid(actor_strength - opponent_strength + situational)`.
+- Two contexts:
+  - **ESTIMATE**: planner uses agent belief state (may be wrong → plan failure at runtime).
+  - **SIMULATE**: engine uses world truth for actual outcome.
+- Core resolution functions (see `schema/utility_functions.acf`):
+  - `detection_risk(actor, observers)` — stealth vs observation
+  - `persuasion_chance(actor, target)` — honest social influence
+  - `deception_chance(actor, target)` — lying, manipulation
+  - `intimidation_chance(actor, target)` — threats, coercion
+  - `combat_chance(attacker, defender)` — attack vs defense
+  - `lockpick_chance(actor, lock)` — lock defeat
+  - `craft_chance(actor, recipe)` — crafting, forging, repairing
+  - `observation_chance(actor, target)` — noticing, learning
+  - `trade_advantage(buyer, seller)` — price negotiation
+  - `chase_chance(runner, pursuer)` — escape vs pursuit
+
+### Plan library coverage
+
+- Prioritize diverse everyday plans that the planner auto-inserts when drives are violated:
+  `rest`, `eat`, `drink`, `find_shelter`, `tend_wound`, `flee_danger`, etc.
+- Build reusable building blocks that compose into many higher-level plans:
+  `move_to`, `acquire_access`, `acquire_information`, `acquire_item`, `gain_entry`,
+  `influence_person`, `neutralize_security`, `cover_tracks`, `establish_cover`.
+- Each building block should have multiple methods covering different approaches.
+- Think about common problems and derive different plans for each:
+  "How does an agent get somewhere?" → walk, ride, sail, sneak
+  "How does an agent learn something?" → ask, observe, research, bribe, explore
+
+### World rules
+
+- Every adversarial interaction needs a predictable resolution mechanism.
+- Rules are cataloged in `schema/world_rules.acf` with implementation status.
+- Categories: PHYSICS (L0), BIOLOGY (L1), DETECTION (L3), COMBAT (L3), SOCIAL (L3), ECONOMIC (L4).
