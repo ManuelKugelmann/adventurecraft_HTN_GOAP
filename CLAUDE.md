@@ -278,11 +278,14 @@ docs/            spec, summary, source catalog
 - `performed($subject, action_type, params)` queries sim history for observed actions.
   The action exists in ground truth; `self.knows(performed(...))` returns true only if
   the agent's perception filter passes for that event.
-- **Active suspect plans override filtered ground truth.** When a guard runs
-  `suspect.heist { subject = $thief }`, the guard's knowledge/model of `$thief` now
-  includes the active suspicion. This is a relevant override — the guard has an active
-  hypothesis about the subject layered on top of neutral observation history.
-  Other agents who model the guard can see this: "the guard suspects that person."
+- **Agent models mirror agent structure.** Every agent maintains internal models of
+  other agents (nodes). These models have the same structure as the agent itself:
+  active plans, roles, traits. When a guard suspects a thief, the guard's model of
+  the thief gets a plan populated in its active plan slot — the guard's best
+  reconstruction of what the thief is doing (e.g. `criminal.heist`, generic method).
+  The thief has the real plan (ground truth). The guard has a truncated/wrong/generic
+  version (estimate). Mismatch = wrong prediction = guard responds inappropriately.
+  This IS the ESTIMATE/SIMULATE split applied to agent models.
 - `suspected($subject, plan_id)` is a knowledge fact created when a suspect plan
   reports to authority. Authorities receiving this may activate investigation behaviors.
 

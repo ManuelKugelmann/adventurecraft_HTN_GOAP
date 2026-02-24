@@ -617,17 +617,33 @@ When an agent suspects criminal or hostile activity, they execute a
 flags, no detection state machine. An active `suspect.heist` plan on
 a guard = the guard is actively investigating a suspected heist.
 
-### The active plan is a virtual item
+### Suspicion populates the agent's model of the subject
 
-Running `suspect.heist` is observable. The guard's behavior changes:
-they stop routine patrol, focus on a subject, question people, report
-to authority. Other agents can perceive this — a thief sees that the
-guard has shifted from scanning to investigating. The active plan is
-like a virtual item on the executing agent.
+Every agent maintains internal models of other agents. These models
+mirror agent structure: active plans, roles, traits. When the guard
+concludes `suspect.heist`, the guard's model of the thief gets
+`criminal.heist` placed in the thief's active plan slot — the guard's
+best reconstruction of what the thief is doing.
 
-When the suspect plan completes (confirmed → escalate, or dismissed →
-no method's needs satisfied), the suspicion resolves. The guard returns
-to routine. No flag to clear, no state to reset.
+```
+Thief (ground truth):           Guard's model of thief (estimate):
+  active_plan: criminal.heist     active_plan: criminal.heist
+  method: infiltration             method: ??? (generic/unknown)
+  step: crack_vault                step: ??? (guard hasn't seen this yet)
+  tools: [lockpicks, rope]         tools: [lockpicks] (only saw lockpicks)
+```
+
+The thief has the real plan. The guard has a truncated/wrong/generic
+version — populated from what they've observed plus the suspect plan's
+pattern matching. This IS the ESTIMATE/SIMULATE split applied to
+agent models. Mismatch = wrong prediction = guard responds to a
+classic crew heist when it's actually a solo infiltration.
+
+Running `suspect.heist` is also observable. The guard's behavior
+changes: they stop routine patrol, focus on a subject, question people.
+A thief can perceive this shift. When the suspect plan completes
+(confirmed → escalate) or dismisses (no method's needs met),
+the model entry clears. No flags to reset.
 
 ### How it works
 
