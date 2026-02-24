@@ -8,10 +8,10 @@ plan economic.store_for_winter [economic, survival] {
         when { season == autumn }
         priority = self.drives.survival * 0.8
 
-        assess:    do Sense.Indirect { target = $storehouse }
+        assess:    do Sense.Structured { target = $storehouse }
         gather:    do Transfer.Direct { source = $fields }
             prob = sigmoid(self.skills.gathering - 10)
-        process:   do Modify.Careful { target = $food, objects = [salt, jars] }
+        process:   do Modify.Indirect { target = $food, objects = [salt, jars] }
         store:     do Transfer.Direct { item = $food, to = $storehouse }
         check:     wait $storehouse.food > winter_duration * self.consumption_rate
     }

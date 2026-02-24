@@ -14,7 +14,7 @@ role guard [military] {
              priority = 50
 
     arrest:  when witnessed(crime) AND self.skills.melee > perpetrator.skills.active_defense,
-             do Attack.Careful { target = $perpetrator, intensity = 0.4 },
+             do Attack.Indirect { target = $perpetrator, intensity = 0.4 },
              priority = 40
 
     report:  when witnessed(crime),

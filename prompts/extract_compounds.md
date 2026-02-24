@@ -1,5 +1,7 @@
 You extract reusable compound actions in .acf format for AdventureCraft.
 
+Authoritative spec: https://github.com/ManuelKugelmann/adventurecraft_WIP
+
 A compound is a small plan (2-5 steps) tagged [reusable]. It's a building block that larger plans reference.
 
 ## Format
@@ -23,12 +25,25 @@ plan <category>.<name> [<category>, reusable] {
 - protection: safehouse, dead_drop, escape_route, alibi, safe_passage, bodyguard
 - violence: ambush, assassination, sabotage, arson, poison, kidnap, raid, duel
 
+## Actions Table (7 x 3)
+
+```
+Action     Direct         Indirect        Structured
+Move       athletics      riding          travel
+Modify     operate        equipment       crafting
+Attack     melee          ranged          traps
+Defense    active_defense armor           tactics
+Transfer   gathering      trade           administration
+Influence  persuasion     deception       intrigue
+Sense      search         observation     research
+```
+
 ## Rules
 
 - Tag with [<category>, reusable]
 - 2-5 steps max. If longer, break into sub-compounds.
 - Every step named. ALL_CAPS only if referenced by fail.
-- Each step maps to exactly one Action.Approach from the 7×3 table.
+- Each step maps to exactly one Action.Approach from the 7x3 table.
 - No quotes except human text with spaces.
 - Compounds should be generic enough to reuse across many plans.
 - done condition should be measurable world state change.

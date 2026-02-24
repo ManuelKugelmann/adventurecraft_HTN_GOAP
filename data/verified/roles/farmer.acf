@@ -22,7 +22,7 @@ role farmer [economic, rural] {
              priority = 5
 
     repair:  when $field.fence.condition < 30,
-             do Modify.Careful { target = $field.fence, objects = [wood] },
+             do Modify.Indirect { target = $field.fence, objects = [wood] },
              priority = 8
 }
 

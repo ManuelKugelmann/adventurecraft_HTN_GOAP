@@ -1,6 +1,8 @@
 """
-ACF schema definitions and expression linter.
+ACF schema definitions and validator.
 Validates .acf files against the AdventureCraft data spec.
+
+Authoritative spec: https://github.com/ManuelKugelmann/adventurecraft_WIP
 """
 
 import re
@@ -9,40 +11,42 @@ from enum import Enum
 from typing import Optional
 
 # ── Actions & Approaches ──────────────────────
+# Three approaches per action: Direct (brute force), Indirect (finesse),
+# Structured (systematic/planned). Maps to 21 skills + 2 meta-skills.
 
 ACTIONS = ["Move", "Modify", "Attack", "Defense", "Transfer", "Influence", "Sense"]
-APPROACHES = ["Direct", "Careful", "Indirect"]
+APPROACHES = ["Direct", "Indirect", "Structured"]
 
 ACTION_SKILLS = {
-    ("Move", "Direct"): "athletics",
-    ("Move", "Careful"): "riding",
-    ("Move", "Indirect"): "travel",
-    ("Modify", "Direct"): "operate",
-    ("Modify", "Careful"): "equipment",
-    ("Modify", "Indirect"): "crafting",
-    ("Attack", "Direct"): "melee",
-    ("Attack", "Careful"): "ranged",
-    ("Attack", "Indirect"): "traps",
-    ("Defense", "Direct"): "active_defense",
-    ("Defense", "Careful"): "armor",
-    ("Defense", "Indirect"): "tactics",
-    ("Transfer", "Direct"): "gathering",
-    ("Transfer", "Careful"): "trade",
-    ("Transfer", "Indirect"): "administration",
-    ("Influence", "Direct"): "persuasion",
-    ("Influence", "Careful"): "deception",
-    ("Influence", "Indirect"): "intrigue",
-    ("Sense", "Direct"): "search",
-    ("Sense", "Careful"): "observation",
-    ("Sense", "Indirect"): "research",
+    ("Move", "Direct"): "athletics",          # Str+Agi
+    ("Move", "Indirect"): "riding",           # Agi+Wit
+    ("Move", "Structured"): "travel",         # Wit+Will
+    ("Modify", "Direct"): "operate",          # Str+Wit
+    ("Modify", "Indirect"): "equipment",      # Agi+Wit
+    ("Modify", "Structured"): "crafting",     # Wit+Will
+    ("Attack", "Direct"): "melee",            # Str+Agi
+    ("Attack", "Indirect"): "ranged",         # Agi+Wit
+    ("Attack", "Structured"): "traps",        # Wit+Will
+    ("Defense", "Direct"): "active_defense",  # Agi+Str
+    ("Defense", "Indirect"): "armor",         # Str+Bod
+    ("Defense", "Structured"): "tactics",     # Wit+Will
+    ("Transfer", "Direct"): "gathering",      # Str+Agi
+    ("Transfer", "Indirect"): "trade",        # Cha+Wit
+    ("Transfer", "Structured"): "administration",  # Wit+Will
+    ("Influence", "Direct"): "persuasion",    # Cha+Will
+    ("Influence", "Indirect"): "deception",   # Cha+Wit
+    ("Influence", "Structured"): "intrigue",  # Wit+Will
+    ("Sense", "Direct"): "search",            # Agi+Wit
+    ("Sense", "Indirect"): "observation",     # Wit+Will
+    ("Sense", "Structured"): "research",      # Wit+Spi
 }
 
 VALID_ACTION_REFS = {f"{a}.{ap}" for a in ACTIONS for ap in APPROACHES}
 
-# ── Entity Schema ─────────────────────────────
+# ── Entity Schema (trait-based, see architecture.md) ──
 
-ATTRIBUTES = ["str", "agi", "bod", "wil", "int", "spi", "cha"]
-# authority and reputation are DERIVED, never stored
+ATTRIBUTES = ["str", "agi", "bod", "wil", "wit", "spi", "cha"]
+# authority and reputation are DERIVED from relationships, never stored
 DERIVED_ATTRS = ["authority", "reputation"]
 
 SKILLS = list({v for v in ACTION_SKILLS.values()})
@@ -52,14 +56,31 @@ DRIVES = ["survival", "luxury", "dominance", "belonging", "knowledge", "lawful",
 
 RELATIONSHIP_AXES = ["debt", "reputation", "affection", "familiarity"]
 
-EDGE_TYPES = [
-    "social", "member_of", "owns", "holds", "contains",
-    "located_in", "connected_to", "adjacent", "parent_of",
-    "parent_template", "hostile_to", "allied_with",
-    "knows_about", "guards", "delegates_to", "supplies",
+# ── Traits (from unified tree spec) ──────────
+
+SINGLE_TRAITS = [
+    "Vitals", "Attributes", "Skills", "Drives", "Agency",
+    "Weapon", "Armor", "Perishable", "Flammable", "Edible",
+    "Tool", "Container", "Heavy", "Fragile", "Valuable",
+    "Stackable", "Material", "LightSource", "Concealed", "Condition",
+    "Immaterial", "Spatial", "Climate", "Hydrology", "Lighting",
+    "Burning", "Soil", "Populated", "Vehicle",
+    "Obscurity", "PlanMeta", "ContractTerms", "AuthStrength",
 ]
 
-EDGE_AGGS = ["exists", "min_depth", "sum", "min", "max", "product"]
+MULTI_TRAITS = [
+    "Social", "MemberOf", "DelegatesTo", "KnowsAbout", "Guards",
+    "HostileTo", "AlliedWith", "EmployedBy", "ConnectedTo",
+    "OwnedBy", "Adjacent", "ActiveRole", "Mirrors", "AuthScope",
+    "DelegatedFrom", "NaturalResource", "StatCopy",
+]
+
+# ── Elementary effect operations ─────────────
+
+EFFECT_OPS = [
+    "Accumulate", "Decay", "Set", "Transfer", "Spread",
+    "Create", "Destroy", "AddTrait", "RemoveTrait",
+]
 
 # ── Observable state (for counter threat signatures) ──
 
@@ -67,6 +88,7 @@ OBSERVABLE_PATHS = {
     "pos", "location", "weight", "faction", "garrison", "walls",
     "equipped", "action", "building", "terrain", "fire", "water",
     "condition", "visible", "size", "flag", "formation",
+    "temperature", "humidity",
 }
 
 HIDDEN_PATHS = {
@@ -77,18 +99,18 @@ HIDDEN_PATHS = {
 # ── Rule layers ───────────────────────────────
 
 class RuleLayer(Enum):
-    L0 = 0  # physics
-    L1 = 1  # biology
-    L2 = 2  # items
-    L3 = 3  # social
-    L4 = 4  # economic
+    L0 = 0  # physics (temperature, fire, water, light, terrain)
+    L1 = 1  # biology (growth, metabolism, disease, aging, healing)
+    L2 = 2  # items (decay, durability, spoilage, fuel)
+    L3 = 3  # social (judgment, familiarity, knowledge propagation, mood)
+    L4 = 4  # economic (supply/demand, complex interactions, combat)
 
 LAYER_TAGS = {
-    "L0": RuleLayer.L0, "physics": RuleLayer.L0,
-    "L1": RuleLayer.L1, "biology": RuleLayer.L1,
-    "L2": RuleLayer.L2, "items": RuleLayer.L2,
-    "L3": RuleLayer.L3, "social": RuleLayer.L3,
-    "L4": RuleLayer.L4, "economic": RuleLayer.L4,
+    "L0": RuleLayer.L0, "L0_Physics": RuleLayer.L0, "physics": RuleLayer.L0,
+    "L1": RuleLayer.L1, "L1_Biology": RuleLayer.L1, "biology": RuleLayer.L1,
+    "L2": RuleLayer.L2, "L2_Items": RuleLayer.L2, "items": RuleLayer.L2,
+    "L3": RuleLayer.L3, "L3_Social": RuleLayer.L3, "social": RuleLayer.L3,
+    "L4": RuleLayer.L4, "L4_Economic": RuleLayer.L4, "economic": RuleLayer.L4,
 }
 
 # L0 depends on nothing, L1 on L0, L2 on L0, L3 on L0-L2, L4 on L0-L3
@@ -105,6 +127,7 @@ LAYER_DEPS = {
 EXPR_FUNCTIONS = {
     "min", "max", "abs", "sigmoid", "prob", "random",
     "count", "any", "sum", "product",
+    "distance", "contains", "depth",
     "edge", "co_located", "nearby", "witnessed",
 }
 
@@ -213,7 +236,7 @@ def quick_validate(filepath: str, content: str) -> ValidationResult:
             result.add(ValidationError(
                 file=filepath, path=ref,
                 rule="action_valid",
-                message=f"Invalid approach '{parts[1]}'. Must be Direct|Careful|Indirect"
+                message=f"Invalid approach '{parts[1]}'. Must be Direct|Indirect|Structured"
             ))
 
     # Check fail references point to existing labels

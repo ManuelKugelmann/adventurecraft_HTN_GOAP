@@ -4,14 +4,14 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-from schema.acf_schema import quick_validate
+from schema.acf_schema import quick_validate, VALID_ACTION_REFS
 
 
 def test_valid_plan():
     content = """plan test.valid [test] {
     method default {
         step_a: do Move.Direct { target = $destination }
-        step_b: do Attack.Careful { target = $enemy }
+        step_b: do Attack.Indirect { target = $enemy }
             prob = sigmoid(self.skills.ranged - $enemy.skills.active_defense)
     }
     done { $enemy.health <= 0 }
@@ -40,6 +40,17 @@ def test_invalid_approach():
     assert any(e.rule == "action_valid" for e in result.errors), "Should flag invalid approach"
 
 
+def test_old_approach_careful_rejected():
+    """Careful is no longer a valid approach (replaced by Indirect/Structured)."""
+    content = """plan test.old_approach [test] {
+    method default {
+        step_a: do Move.Careful { target = $destination }
+    }
+}"""
+    result = quick_validate("test.acf", content)
+    assert any(e.rule == "action_valid" for e in result.errors), "Should flag old Careful approach"
+
+
 def test_missing_fail_target():
     content = """plan test.bad_ref [test] {
     method default {
@@ -56,7 +67,7 @@ def test_valid_fail_target():
     method default {
         step_a: do Move.Direct { target = $destination }
             fail = FALLBACK
-        FALLBACK: do Move.Indirect { target = $safehouse }
+        FALLBACK: do Move.Structured { target = $safehouse }
     }
 }"""
     result = quick_validate("test.acf", content)
@@ -125,6 +136,24 @@ def test_valid_rule():
 }"""
     result = quick_validate("test.acf", content)
     assert result.ok, str(result)
+
+
+def test_structured_approach_valid():
+    """Structured is a valid approach in the new spec."""
+    content = """plan test.structured [test] {
+    method default {
+        step_a: do Sense.Structured { target = $area }
+        step_b: do Attack.Structured { target = $enemy }
+    }
+    done { $enemy.health <= 0 }
+}"""
+    result = quick_validate("test.acf", content)
+    assert result.ok, str(result)
+
+
+def test_all_action_approach_combos():
+    """Verify all 21 action.approach combos are valid."""
+    assert len(VALID_ACTION_REFS) == 21
 
 
 def test_seed_data_validates():
