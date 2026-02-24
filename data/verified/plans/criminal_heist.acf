@@ -39,9 +39,11 @@ plan criminal.heist [criminal, economic] {
             # Goal: have loot, be free, not pursued
             accessible(self, $vault.contents), prob = 0.6
             NOT co_located(self, $target_location), prob = 0.9
-            NOT pursued(self), prob = 0.7
-            # Risks
+            # Short-term: crew + alarm disable → low alarm, but still detection possible
             visible(self, $vault.guards), prob = detection_risk(self, $vault.guards)
+            NOT pursued(self), prob = 1 - detection_risk(self, $vault.guards) * alarm_risk($vault.guards) * pursuit_risk($vault.guards, self)
+            # Long-term: cover_tracks step reduces evidence, but crew = more traces
+            NOT attributed(self, theft), prob = 1 - evidence_risk(self, $vault) * attribution_risk(law_enforcement, self)
             edge(self, law_enforcement, disposition) -= 0.3
             time += 120
         }
@@ -78,9 +80,14 @@ plan criminal.heist [criminal, economic] {
             # Goal: have loot, vanish without a trace
             accessible(self, $vault.contents), prob = 0.5
             NOT co_located(self, $target_location), prob = 0.85
-            NOT pursued(self), prob = 1 - detection_risk(self, $vault.guards)
-            # Risks
+            # Short-term: stealth-focused. Detection is the critical link.
+            # If detected → high alarm (solo, no crew to suppress), but
+            # identification_risk low (night, disguise). Pursuit hard (head start).
             visible(self, $vault.guards), prob = detection_risk(self, $vault.guards)
+            NOT pursued(self), prob = 1 - detection_risk(self, $vault.guards) * alarm_risk($vault.guards) * pursuit_risk($vault.guards, self)
+            # Long-term: solo = fewer traces, but no cover_tracks step.
+            # Low evidence risk (careful technique) but attributable if caught on camera.
+            NOT attributed(self, theft), prob = 1 - evidence_risk(self, $vault) * attribution_risk(law_enforcement, self)
             self.Vitals.Stamina -= 30
             time += 90
         }
@@ -120,8 +127,14 @@ plan criminal.heist [criminal, economic] {
             # Goal: walk out with loot, no one the wiser (until later)
             accessible(self, $vault.contents), prob = 0.7
             NOT co_located(self, $target_location), prob = 0.95
-            NOT pursued(self), prob = 0.85
-            # Risks: insider is the weak link post-heist
+            # Short-term: legitimate access → near-zero detection during action.
+            # Insider disables alarms → alarm_risk minimal.
+            NOT pursued(self), prob = 0.95
+            # Long-term: insider is the weak link. They know your identity,
+            # the plan, and have motive to talk (plea deal, guilt, blackmail).
+            # High attribution risk despite low evidence risk.
+            NOT attributed(self, theft), prob = 1 - attribution_risk(law_enforcement, self)
+            # Risks: insider can be pressured by investigators
             edge($insider, law_enforcement, disposition) -= 0.5
             edge(self, $insider, disposition) -= 0.2
             time += 60
@@ -154,9 +167,15 @@ plan criminal.heist [criminal, economic] {
             # Goal: grab loot fast. Escape is the hard part.
             accessible(self, $vault.contents), prob = 0.75
             NOT co_located(self, $target_location), prob = 0.85
-            NOT pursued(self), prob = chase_chance(self, law_enforcement)
-            # Risks: almost certain detection, possible injury
+            # Short-term: detection is near-certain (loud, destructive).
+            # Alarm is near-certain. Pursuit is near-certain.
+            # Survival depends entirely on speed (chase_chance).
             visible(self, nearby($target_location, 100)), prob = detection_risk(self, nearby($target_location, 100))
+            NOT pursued(self), prob = chase_chance(self, law_enforcement)
+            NOT captured(self), prob = chase_chance(self, law_enforcement) * (1 - capture_risk(law_enforcement, self))
+            # Long-term: witnesses, destruction = high evidence. But masks + speed
+            # reduce identification_risk. Attribution depends on prior record.
+            NOT attributed(self, theft), prob = 1 - identification_risk(self, nearby($target_location, 100)) * attribution_risk(law_enforcement, self)
             alive(self), prob = 0.9
             edge(self, law_enforcement, disposition) -= 0.5
             $target_location.barrier.Physical.Integrity -= 80
@@ -195,11 +214,17 @@ plan criminal.heist [criminal, economic] {
 
         outcomes {
             # Goal: loot + vanish before mark realizes.
-            # No one knows it happened yet — highest no-pursuit prob.
             accessible(self, $vault.contents), prob = 0.65
             NOT co_located(self, $target_location), prob = 0.95
-            NOT pursued(self), prob = 0.9
-            # Risks: eventual discovery, burned relationship
+            # Short-term: zero detection during action (legitimate access, no force).
+            # No alarm, no pursuit. This is the best short-term method.
+            NOT pursued(self), prob = 0.95
+            # Long-term: the mark WILL eventually discover the loss.
+            # Cover identity was built over months — very attributable.
+            # The relationship trail IS the evidence. erase step helps but
+            # gatekeeper knows your face (or cover face) and will talk.
+            NOT attributed(self, theft), prob = 1 - attribution_risk($gatekeeper, self)
+            # Risks: burned relationship, possible social network damage
             edge($gatekeeper, self, disposition) -= 0.8
             time += 2880
         }
@@ -221,9 +246,12 @@ plan criminal.heist [criminal, economic] {
             # Goal: grab and get away. No safehouse — just flee the scene.
             accessible(self, $vault.contents), prob = 0.4
             NOT co_located(self, $target_location), prob = chase_chance(self, nearby(self, 20))
-            NOT pursued(self), prob = 1 - detection_risk(self, nearby(self, 20))
-            # Risks: witnesses
+            # Short-term: depends entirely on who's around. Impulsive = no prep.
             visible(self, nearby(self, 20)), prob = detection_risk(self, nearby(self, 20))
+            NOT pursued(self), prob = 1 - detection_risk(self, nearby(self, 20)) * alarm_risk(nearby(self, 20))
+            # Long-term: no cover_tracks, no disguise prep. Witnesses are the main risk.
+            # If identified by someone with familiarity → easy attribution.
+            NOT attributed(self, theft), prob = 1 - detection_risk(self, nearby(self, 20)) * identification_risk(self, nearby(self, 20))
             edge(self, law_enforcement, disposition) -= 0.2
             time += 2
         }

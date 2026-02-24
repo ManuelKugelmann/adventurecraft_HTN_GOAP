@@ -266,6 +266,112 @@ Key distinction: ENGINE functions check world truth (used by the engine to
 validate execution). KNOWLEDGE functions check what the agent believes (used
 in `needs` for planning). All other functions operate on agent-available data.
 
+## Adversary Response Chains
+
+Adversarial fail points don't have flat costs. When a contested action fails
+(actor is detected, lock pick fails, deception is seen through), the adversary
+reacts. The cost of failure depends on the adversary's response chain — a
+cascade of reactions, each with its own resolution.
+
+The planner needs to estimate not just P(failure) but E\[cost(failure)\], where
+cost depends on what the adversary will do in response.
+
+### Two chains, two timescales
+
+**Short-term chain** (during/immediately after action):
+
+```
+detected → identified → alarm → pursuit → capture
+```
+
+Plays out in seconds to minutes. The actor may be able to interrupt the chain
+(flee before alarm, talk down the guard, fight through pursuit).
+
+**Long-term chain** (hours/days after action):
+
+```
+evidence_left → discovered → investigated → attributed → hunted
+```
+
+Plays out in hours to weeks. The actor may not know it's happening until
+confronted. A heist that succeeded short-term can fail long-term when
+investigation traces evidence back to the perpetrator.
+
+### Different countermeasures attack different links
+
+| Countermeasure | Chain link reduced | Function |
+|---|---|---|
+| Stealth (skill, darkness, timing) | P(detected) | `detection_risk` |
+| Disguise (mask, false identity) | P(identified) | `identification_risk` |
+| Bribe / silence witness | P(alarm raised) | `alarm_risk` (via Influence step) |
+| Speed / diversion | P(pursued) | `pursuit_risk` |
+| Combat / escape tools | P(captured) | `capture_risk` |
+| Careful technique / gloves | P(evidence left) | `evidence_risk` |
+| Cover tracks / alibi | P(attributed) | `attribution_risk` |
+| Flee region | P(found after warrant) | `chase_chance` |
+
+This decomposition is why "stealth" is not one thing. An agent with high stealth
+skill reduces P(detected). An agent with a good disguise reduces P(identified
+\| detected). A fast agent reduces P(captured \| pursued). These are independent
+axes — a different plan method optimizes each.
+
+### Chain composition in outcomes
+
+Instead of magic numbers, plans compose chain links:
+
+```acf
+# Before: flat guess, planner can't reason about it
+NOT pursued(self), prob = 0.7
+
+# After: chain-derived, planner sees which links to attack
+# Short-term: detection → alarm → pursuit
+NOT pursued(self), prob = 1 - detection_risk(self, $guards)
+                              * alarm_risk($guards)
+                              * pursuit_risk($guards, self)
+
+# Long-term: evidence → attribution
+NOT attributed(self, theft), prob = 1 - evidence_risk(self, $location)
+                                      * attribution_risk($authority, self)
+```
+
+The planner now knows that investing in stealth reduces the first factor,
+while investing in cover_tracks reduces the second.
+
+### The adversary is also an agent
+
+The adversary follows its own role behaviors. A guard's role defines:
+patrol → alert → defend → arrest. The response chain models how these
+cascade when triggered:
+
+```
+guard detects intruder
+  → guard.alert fires (priority 45): warn community
+    → alert_propagation rule: nearby allies become alert
+      → guard.defend fires (priority 50): engage
+        → combat_chance(guard, intruder) OR
+          guard.arrest fires (priority 40): subdue
+          → capture_risk(guards, intruder)
+```
+
+The planner doesn't fully simulate this chain — it estimates through
+the response chain resolution functions, which encapsulate the expected
+cascade for different adversary archetypes.
+
+### Interrupting the chain
+
+At each link, the actor may have options to prevent escalation:
+
+- **Detected** → attempt Influence.Direct (explain presence) or flee
+- **Identified** → if wearing disguise, identification may fail
+- **Alarm raised** → neutralize_security plan already handles this
+- **Pursuit mounted** → flee_danger plan with run/hide/diversion methods
+- **Evidence left** → cover_tracks plan, already part of heist methods
+
+Plans that include interrupt steps at each link have better expected
+outcomes than plans that hope the first link doesn't fire. The classic
+crew heist includes `disable_alarms` and `cover_tracks` — it attacks
+both the alarm link and the evidence link.
+
 ## Open Questions
 
 - How deep should knowledge chaining go before bottoming out at explore?

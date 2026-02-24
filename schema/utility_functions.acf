@@ -165,6 +165,111 @@ function edge(a, b, axis) [ENGINE, core] {
     notes: returns 0 if no relationship exists
 }
 
+# ── RESPONSE CHAIN: adversary reaction estimation ────────────────
+# Plans need to estimate not just P(failure) but E[cost(failure)].
+# When a contested action fails (actor is detected, lock pick fails,
+# deception is seen through), the adversary reacts. The cost depends
+# on the adversary's response chain — a cascade of reactions, each
+# with its own resolution.
+#
+# Short-term chain (during/immediately after action):
+#   detected → identified → alarm → pursuit → capture
+#   Each link is a resolution function. Different countermeasures
+#   attack different links:
+#     stealth    → P(detected)     disguise → P(identified)
+#     bribe      → P(alarm)        speed    → P(captured)
+#
+# Long-term chain (hours/days after action):
+#   evidence_left → discovered → investigated → attributed → hunted
+#   Different countermeasures:
+#     cover_tracks → P(evidence)   alibi → P(attributed)
+#     flee_region  → P(hunted)
+#
+# Plans compose chain links in outcomes:
+#   NOT pursued(self), prob = 1 - detection_risk(self, G)
+#                                * alarm_risk(G)
+#                                * pursuit_risk(G, self)
+#   attributed(self, $crime), prob = evidence_risk(self, $loc)
+#                                   * attribution_risk($authority, self)
+
+function identification_risk(actor, observer) [RESOLUTION, planned] {
+    # Probability that observer identifies actor (knows WHO, not just THAT).
+    # Distinct from detection_risk: you can be spotted but not recognized.
+    # Disguise, darkness, distance reduce identification. Familiarity increases it.
+    # Chains from detection_risk; moot if actor was not detected.
+    returns: float
+    actor_strength: actor.equipment.disguise_quality + actor.Skills.deception * 0.3
+    opponent_strength: edge(observer, actor, familiarity) * 30 + observer.Skills.observation * 0.5
+    situational: Lighting.visibility, distance(actor, observer)
+    resolution: sigmoid(opponent_strength - actor_strength + situational)
+    notes: familiarity dominates — hard to fool someone who knows your face
+}
+
+function alarm_risk(observer) [RESOLUTION, planned] {
+    # Probability that a detecting observer raises alarm / alerts others.
+    # Guards almost always raise alarm. Civilians depend on duty, stake,
+    # and disposition toward the actor.
+    # Not a classic sigmoid — primarily duty-based, not contested.
+    # Bribery or intimidation to prevent alarm are separate Influence actions
+    # that reduce this before execution (modeled as plan steps, not modifiers).
+    returns: float
+    observer_duty: observer.role.alert_duty
+    observer_stake: owns(observer, protected_asset) OR authority_over(observer, location)
+    situational: observer.courage, communication_available
+    resolution: clamp(observer_duty * 0.7 + observer_stake * 0.2 + situational * 0.1, 0, 1)
+    notes: guards ≈ 0.9, shopkeepers ≈ 0.6, indifferent bystanders ≈ 0.2
+}
+
+function pursuit_risk(pursuers, target) [RESOLUTION, planned] {
+    # Probability that organized pursuit is mounted and sustained.
+    # Depends on pursuer numbers, coordination, and target's head start.
+    # Distinct from chase_chance (which is the runner's escape probability
+    # once pursuit is already underway). This models whether pursuit even
+    # gets organized.
+    returns: float
+    actor_strength: count(pursuers) * 5 + max(pursuers.Movement.Speed) + pursuers.coordination
+    opponent_strength: target.head_start * 10 + target.Movement.Speed
+    situational: terrain.escape_routes, crowd_density, darkness
+    resolution: sigmoid(actor_strength - opponent_strength + situational)
+    notes: high guard count + fast communication = high pursuit risk
+}
+
+function capture_risk(captors, target) [RESOLUTION, planned] {
+    # Probability that active pursuit ends in capture (not escape or standoff).
+    # Factors: numbers advantage, combat power, terrain, target endurance.
+    # Chains from pursuit_risk: if pursuit is organized, can they catch you?
+    returns: float
+    actor_strength: sum(captors.combat_power) + count(captors) * 3
+    opponent_strength: target.combat_power + target.Skills.active_defense + target.Vitals.Stamina * 0.05
+    situational: terrain.defensibility, target.equipment.escape_tools
+    resolution: sigmoid(actor_strength - opponent_strength + situational)
+}
+
+function evidence_risk(actor, location) [RESOLUTION, planned] {
+    # Probability that actor leaves detectable evidence at location.
+    # Forensic traces: tracks, tool marks, dropped items, biological traces.
+    # Long-term risk: persists after actor leaves. Decays with time and weather.
+    # The cover_tracks plan reduces this after the fact.
+    returns: float
+    actor_strength: actor.Skills.stealth * 0.5 + actor.equipment.gloves + actor.caution
+    opponent_strength: location.surface.track_retention + location.security.forensic_level
+    situational: weather.evidence_decay, time_spent_at_location * 0.1
+    resolution: sigmoid(opponent_strength - actor_strength + situational)
+}
+
+function attribution_risk(investigator, suspect) [RESOLUTION, planned] {
+    # Probability that investigator links existing evidence to suspect.
+    # The post-hoc detection: "we found tracks, whose are they?"
+    # Requires evidence to exist (chained from evidence_risk).
+    # High familiarity = easier attribution. Disguise/alibi reduces risk.
+    returns: float
+    actor_strength: investigator.Skills.tracking + investigator.Skills.research
+    opponent_strength: suspect.cover_tracks_quality + suspect.alibi_quality
+    situational: evidence.quality, witness_count, time_since_crime
+    resolution: sigmoid(actor_strength - opponent_strength + situational)
+    notes: time decay favors the suspect; old evidence harder to attribute
+}
+
 # ── KNOWLEDGE: agent belief state ─────────────────────────────────
 # Checked in needs { }. The agent plans based on what it knows,
 # not what is true. Stale/wrong knowledge leads to plan failure,
@@ -313,6 +418,16 @@ function authority_over(a, b) [DERIVED, planned] {
     returns: bool
     resolves_to: edge(a, b, authority) > 0 OR edge(a, b.group, authority) > 0
     notes: never stored, always derived from relationships
+}
+
+function attributed(suspect, crime) [DERIVED, planned] {
+    # Authority has identified suspect as perpetrator of crime.
+    # End-state of the long-term detection chain:
+    #   evidence_left → discovered → investigated → attributed.
+    # Triggers pursuit/arrest behaviors in law enforcement roles.
+    returns: bool
+    resolves_to: any(nearby(suspect, 1000), authority_over(A, suspect.location) AND A.knows(suspect committed crime))
+    notes: plans use NOT attributed(self, $crime) as long-term goal state
 }
 
 function threat_level(location) [DERIVED, planned] {

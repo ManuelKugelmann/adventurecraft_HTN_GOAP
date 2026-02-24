@@ -32,6 +32,40 @@ rule detection [social, L3] {
                                - distance(observer, $actor) * 0.1
                                - $location.ambient_noise * 0.2),
                 effect: observer.alert = true
+
+    # ── Identification (chained from detection) ──────────────────
+    # Detection answers "is someone there?" — identification answers
+    # "who is it?". Separate resolution: an actor can be spotted but
+    # not recognized (hooded figure at night, unknown face in crowd).
+
+    identify_known: when visible($actor, observer)
+                        AND edge(observer, $actor, familiarity) > 0.3,
+                    prob = sigmoid(edge(observer, $actor, familiarity) * 30
+                                   + observer.Skills.observation * 0.5
+                                   - $actor.equipment.disguise_quality
+                                   - distance(observer, $actor) * 0.1),
+                    effect: observer.knows(identity_of($actor))
+
+    identify_disguised: when visible($actor, observer)
+                            AND $actor.has(Disguised),
+                        prob = sigmoid(observer.Skills.observation
+                                       - $actor.Skills.deception
+                                       - $actor.equipment.disguise_quality
+                                       + edge(observer, $actor, familiarity) * 20),
+                        effect: observer.knows(identity_of($actor))
+
+    # ── Evidence (long-term detection) ───────────────────────────
+    # Every physical action may leave traces. These persist after the
+    # actor leaves. Investigators find them later via track_following
+    # and investigation rules. cover_tracks plan destroys them.
+
+    evidence_left: when $actor.action.completed
+                       AND $action.physical_contact > 0,
+                   prob = sigmoid($location.surface.track_retention
+                                  - $actor.Skills.stealth * 0.5
+                                  - $actor.equipment.gloves * 0.3
+                                  + $action.physical_contact * 0.5),
+                   effect: Create(evidence, { location = $location, source = $actor, time = now })
 }
 
 _provenance {
