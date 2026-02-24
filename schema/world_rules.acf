@@ -98,7 +98,7 @@ rule_spec detection [DETECTION, core] {
 
 rule_spec identification [DETECTION, planned] {
     # Observer who detects actor attempts to identify them.
-    # Separate from detection: observer can see a figure without knowing who.
+    # Perceptual — brain recognizes face or doesn't. Not a choice.
     # Chains from detection: only fires if visible(actor, observer).
     actor_strength: actor.equipment.disguise_quality + actor.Skills.deception * 0.3
     opponent_strength: observer.Skills.observation * 0.5 + edge(observer, actor, familiarity) * 30
@@ -109,51 +109,28 @@ rule_spec identification [DETECTION, planned] {
     notes: familiarity dominates; hard to fool someone who knows your face
 }
 
-rule_spec alert_propagation [DETECTION, planned] {
-    # Alerted observer warns nearby allies.
-    # Short-term chain link: detection → alarm → THIS → pursuit.
-    # Guards propagate fast (verbal/horn). Civilians slow (gossip/running).
-    inputs: observer.alert, nearby allies, communication_method
-    resolution: prob = 0.9 if co_located, decays with distance and barriers
-    effect: ally.alert = true, location.alert_level += 30
-    implemented: TBD
-    notes: speed of propagation determines target's head_start for pursuit_risk
-}
-
-rule_spec guard_response [DETECTION, planned] {
-    # Guard detects intruder → escalation chain.
-    # Models how guard role behaviors cascade:
-    #   Phase 1: Alert  — raise alarm, warn allies (seconds)
-    #   Phase 2: Challenge — approach, demand explanation (seconds)
-    #   Phase 3: Pursue — chase if target flees (minutes)
-    #   Phase 4: Confront — combat or arrest attempt (immediate on contact)
-    # The guard role defines individual behaviors; this rule governs
-    # the escalation sequence, timing, and conditions for each phase.
-    inputs: visible(actor, guard), guard.role, guard.combat_power, actor.response
-    resolution: escalation_level depends on guard disposition and actor response
-    effect: location.alert_level += 50, pursued(actor) if actor flees
-    implemented: TBD
-    notes: actor can interrupt chain via social (explain, bribe, intimidate) or flee.
-           Each interruption attempt is a contested Influence action.
-}
-
 rule_spec evidence_trace [DETECTION, planned] {
-    # Every physical action at a location may leave forensic evidence.
-    # Passive rule: fires per-action, may create evidence nodes.
-    # Long-term chain start: action → evidence → discovery → investigation.
+    # Every physical action at a location may leave items as evidence.
+    # Physics — footprints in mud, tool marks, biological traces.
+    # Not a choice; determined by surface, equipment, and technique.
+    # Evidence nodes are ordinary items with Physical + Decayable traits.
+    # Subject to normal item rules: rain decays them (L0 weather),
+    # fire destroys them (L0 fire), cover_tracks plan Destroys them.
+    # No special forensics system — just items and existing rules.
     actor_strength: actor.Skills.stealth * 0.5 + actor.equipment.gloves
     opponent_strength: location.surface.track_retention
     modifiers: -weather.evidence_decay, +action.physical_contact * 0.3
     resolution: prob = sigmoid(opponent_strength - actor_strength + modifiers)
-    effect: Create(evidence, { location, actor_traces, action_type, timestamp })
+    effect: Create(item with Physical + Decayable, { location, traces, action_type, time = now })
     implemented: TBD
-    notes: evidence nodes persist and decay over time. Investigators find them
-           via track_following. cover_tracks plan destroys them.
+    notes: investigators find evidence items via track_following (skill check).
+           The CHOICE to investigate is role behavior, not a world rule.
 }
 
 rule_spec track_following [DETECTION, planned] {
-    # Observer finds tracks left by actor.
-    # Long-term chain link: evidence_trace → THIS → investigation.
+    # Observer attempts to follow tracks left by actor.
+    # Skill check on physical evidence — given the observer chooses to track,
+    # can they? The CHOICE to track is role behavior (hunter, guard, investigator).
     actor_strength: actor.Skills.stealth + terrain.softness_penalty
     opponent_strength: observer.Skills.tracking
     modifiers: -time_since_passage, -weather.rain
@@ -162,20 +139,17 @@ rule_spec track_following [DETECTION, planned] {
     implemented: TBD
 }
 
-rule_spec investigation [DETECTION, planned] {
-    # Authority investigates crime scene, follows evidence chain to suspect.
-    # Triggered by: theft_discovery, witness report, alert from guards.
-    # Long-term chain: evidence → track_following → THIS → attribution → pursuit.
-    # May take in-game days or weeks.
-    actor_strength: investigator.Skills.research + investigator.Skills.tracking
-    opponent_strength: suspect.cover_tracks_quality + evidence.decay
-    modifiers: +witness_count, +evidence.freshness, -time_since_crime
-    resolution: prob = sigmoid(actor_strength - opponent_strength + modifiers)
-    effect: investigator.knows(identity_of(suspect)), warrant(suspect)
-    implemented: TBD
-    notes: the planner estimates this chain as attribution_risk(); the engine
-           resolves it step by step through these constituent rules
-}
+# NOTE: guard_response, investigation, alert decisions are NOT world rules.
+# They are adversary role behaviors — the guard/authority CHOOSES to act.
+# The planner predicts adversary behavior by consulting its KNOWLEDGE of
+# the adversary's role, then running a shallow plan simulation (depth <= 2):
+#   "if detected → guard role says alert(45) + defend(50) → capture_risk"
+#   NOT "guard predicts I'll flee north, so they'll cut me off..."
+#
+# Authorities and laws are implicit contracts, not special systems.
+# A "warrant" is an Influence.Structured action creating a contract.
+# "Mob justice" is agents whose belonging/lawful drives are violated.
+# See docs/plan_architecture.md "Adversary Response Chains" for details.
 
 # ── COMBAT (L3) ───────────────────────────────────────────────────
 # Resolves attack vs defense. Used by Attack and Defense actions.

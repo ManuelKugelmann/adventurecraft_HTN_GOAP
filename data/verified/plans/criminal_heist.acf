@@ -39,10 +39,14 @@ plan criminal.heist [criminal, economic] {
             # Goal: have loot, be free, not pursued
             accessible(self, $vault.contents), prob = 0.6
             NOT co_located(self, $target_location), prob = 0.9
-            # Short-term: crew + alarm disable → low alarm, but still detection possible
+            # Short-term: detection is the resolution link. If detected,
+            # guards WILL alert and pursue (guard role, priorities 45/50).
+            # disable_alarms step suppresses automated alerts.
+            # capture_risk resolves whether pursuit succeeds.
             visible(self, $vault.guards), prob = detection_risk(self, $vault.guards)
-            NOT pursued(self), prob = 1 - detection_risk(self, $vault.guards) * alarm_risk($vault.guards) * pursuit_risk($vault.guards, self)
-            # Long-term: cover_tracks step reduces evidence, but crew = more traces
+            NOT pursued(self), prob = 1 - detection_risk(self, $vault.guards) * capture_risk($vault.guards, self)
+            # Long-term: cover_tracks step reduces evidence, but crew = more traces.
+            # If evidence persists → law_enforcement role predicts investigation.
             NOT attributed(self, theft), prob = 1 - evidence_risk(self, $vault) * attribution_risk(law_enforcement, self)
             edge(self, law_enforcement, disposition) -= 0.3
             time += 120
@@ -80,13 +84,12 @@ plan criminal.heist [criminal, economic] {
             # Goal: have loot, vanish without a trace
             accessible(self, $vault.contents), prob = 0.5
             NOT co_located(self, $target_location), prob = 0.85
-            # Short-term: stealth-focused. Detection is the critical link.
-            # If detected → high alarm (solo, no crew to suppress), but
-            # identification_risk low (night, disguise). Pursuit hard (head start).
+            # Short-term: stealth-focused. Detection is the critical resolution.
+            # If detected, guards WILL pursue (role behavior). Solo = no backup.
+            # capture_risk resolves whether they catch self.
             visible(self, $vault.guards), prob = detection_risk(self, $vault.guards)
-            NOT pursued(self), prob = 1 - detection_risk(self, $vault.guards) * alarm_risk($vault.guards) * pursuit_risk($vault.guards, self)
+            NOT pursued(self), prob = 1 - detection_risk(self, $vault.guards) * capture_risk($vault.guards, self)
             # Long-term: solo = fewer traces, but no cover_tracks step.
-            # Low evidence risk (careful technique) but attributable if caught on camera.
             NOT attributed(self, theft), prob = 1 - evidence_risk(self, $vault) * attribution_risk(law_enforcement, self)
             self.Vitals.Stamina -= 30
             time += 90
@@ -127,8 +130,8 @@ plan criminal.heist [criminal, economic] {
             # Goal: walk out with loot, no one the wiser (until later)
             accessible(self, $vault.contents), prob = 0.7
             NOT co_located(self, $target_location), prob = 0.95
-            # Short-term: legitimate access → near-zero detection during action.
-            # Insider disables alarms → alarm_risk minimal.
+            # Short-term: legitimate access → near-zero detection.
+            # Insider disables alarms. No guard response to model.
             NOT pursued(self), prob = 0.95
             # Long-term: insider is the weak link. They know your identity,
             # the plan, and have motive to talk (plea deal, guilt, blackmail).
@@ -247,8 +250,9 @@ plan criminal.heist [criminal, economic] {
             accessible(self, $vault.contents), prob = 0.4
             NOT co_located(self, $target_location), prob = chase_chance(self, nearby(self, 20))
             # Short-term: depends entirely on who's around. Impulsive = no prep.
+            # Bystander response is uncertain (role/drive dependent, not guards).
             visible(self, nearby(self, 20)), prob = detection_risk(self, nearby(self, 20))
-            NOT pursued(self), prob = 1 - detection_risk(self, nearby(self, 20)) * alarm_risk(nearby(self, 20))
+            NOT pursued(self), prob = 1 - detection_risk(self, nearby(self, 20)) * capture_risk(nearby(self, 20), self)
             # Long-term: no cover_tracks, no disguise prep. Witnesses are the main risk.
             # If identified by someone with familiarity → easy attribution.
             NOT attributed(self, theft), prob = 1 - detection_risk(self, nearby(self, 20)) * identification_risk(self, nearby(self, 20))

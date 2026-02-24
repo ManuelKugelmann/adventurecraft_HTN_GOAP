@@ -270,107 +270,125 @@ in `needs` for planning). All other functions operate on agent-available data.
 
 Adversarial fail points don't have flat costs. When a contested action fails
 (actor is detected, lock pick fails, deception is seen through), the adversary
-reacts. The cost of failure depends on the adversary's response chain — a
-cascade of reactions, each with its own resolution.
+reacts. The cost of failure depends on what the adversary will *choose to do*.
 
 The planner needs to estimate not just P(failure) but E\[cost(failure)\], where
-cost depends on what the adversary will do in response.
+cost depends on the adversary's likely response.
 
-### Two chains, two timescales
+### Two kinds of chain links
 
-**Short-term chain** (during/immediately after action):
+**Resolution links** — physical or perceptual contests. Skill vs skill,
+resolved by the engine. These are world rules:
+
+- `detection_risk` — can they perceive me? (stealth vs observation)
+- `identification_risk` — can they recognize me? (disguise vs familiarity)
+- `evidence_risk` — do I leave physical traces? (care vs surface)
+- `capture_risk` — can they physically subdue me? (combat/speed)
+- `attribution_risk` — can they connect evidence to me? (investigation vs alibi)
+
+**Behavioral links** — the adversary *decides* to act. Not a world rule.
+The guard raises the alarm because their role says to. The authority
+investigates because their `lawful` drive is violated. The mob attacks
+because their `belonging` contract was broken.
+
+The planner estimates behavioral links by consulting its **knowledge** of
+the adversary (role, drives, capabilities) and running a shallow plan
+simulation: "given this trigger, what would they do?"
+
+### Adversary modeling from knowledge
+
+The planner doesn't have perfect information. It models adversary response
+from what it *knows* about the adversary:
+
+1. Read adversary's role (if known): guard → alert/defend/arrest behaviors
+2. Estimate which behaviors activate given trigger state
+3. For the highest-priority activated behavior, estimate outcome against self
+4. **Depth limit**: max 2 levels of inception. "I predict they'll pursue,
+   and pursuit resolves via `capture_risk`." NOT "I predict they'll predict
+   I'll flee north, so they'll cut me off at the bridge..."
 
 ```
-detected → identified → alarm → pursuit → capture
+self plans heist
+  → "if detected, guard will..." (depth 1: read guard role)
+    → "guard.alert fires → guard.defend fires" (depth 1: predict behavior)
+      → "can they catch me?" (resolution: capture_risk) ← STOP
 ```
 
-Plays out in seconds to minutes. The actor may be able to interrupt the chain
-(flee before alarm, talk down the guard, fight through pursuit).
+Wrong knowledge = wrong prediction = plan failure at runtime. A thief who
+thinks the guards are slow (but they're not) underestimates capture_risk.
+This is correct behavior — the system already handles this through the
+ESTIMATE/SIMULATE split.
 
-**Long-term chain** (hours/days after action):
+### Evidence is just items
+
+Evidence nodes are ordinary items with Physical trait. No special evidence
+system. Footprints are Decayable items created by the `evidence_trace` rule.
+Rain (L0 weather rule) decays them. Fire destroys them. An investigator
+finds them via `track_following` (skill check on the item). The `cover_tracks`
+plan Destroys them.
 
 ```
-evidence_left → discovered → investigated → attributed → hunted
+action at location → evidence_trace rule → Create(item with Decayable)
+  → weather.rain → Decay rule → item integrity drops → eventually gone
+  → cover_tracks → Destroy(item) → gone immediately
+  → investigator → track_following (skill check vs item) → knows route
 ```
 
-Plays out in hours to weeks. The actor may not know it's happening until
-confronted. A heist that succeeded short-term can fail long-term when
-investigation traces evidence back to the perpetrator.
+No special forensics engine. Just items and the rules that already exist.
 
-### Different countermeasures attack different links
+### Authorities, laws, and mob justice are contracts
 
-| Countermeasure | Chain link reduced | Function |
+There is no special "legal system." Laws are shared contracts — implicit
+agreements within a community. An authority is someone with `authority_over()`.
+Law enforcement is a role, not a special system.
+
+When a contract is violated:
+- The violated party's `lawful`/`belonging` drives increase urgency
+- Their role behaviors activate (guard → arrest, noble → issue warrant)
+- Community members with shared contracts respond (mob → confront)
+- All of these are just agents planning and acting within the same system
+
+A "warrant" is an Influence.Structured action by an authority, creating a
+contract obligation on law_enforcement to pursue the suspect. It's not
+special machinery — it's one agent influencing another's priorities.
+
+### Countermeasures attack different links
+
+| Countermeasure | Link type | What it reduces |
 |---|---|---|
-| Stealth (skill, darkness, timing) | P(detected) | `detection_risk` |
-| Disguise (mask, false identity) | P(identified) | `identification_risk` |
-| Bribe / silence witness | P(alarm raised) | `alarm_risk` (via Influence step) |
-| Speed / diversion | P(pursued) | `pursuit_risk` |
-| Combat / escape tools | P(captured) | `capture_risk` |
-| Careful technique / gloves | P(evidence left) | `evidence_risk` |
-| Cover tracks / alibi | P(attributed) | `attribution_risk` |
-| Flee region | P(found after warrant) | `chase_chance` |
+| Stealth | Resolution | P(detected) — `detection_risk` |
+| Disguise | Resolution | P(identified) — `identification_risk` |
+| Bribe guard | Behavioral | Guard *chooses* not to alert (Influence step) |
+| Speed / diversion | Resolution | P(captured) — `capture_risk` |
+| Careful technique | Resolution | P(evidence left) — `evidence_risk` |
+| Cover tracks | Resolution | Destroy evidence items (reduces `attribution_risk`) |
+| Alibi / flee region | Behavioral | Adversary *chooses* wrong suspect or gives up |
 
-This decomposition is why "stealth" is not one thing. An agent with high stealth
-skill reduces P(detected). An agent with a good disguise reduces P(identified
-\| detected). A fast agent reduces P(captured \| pursued). These are independent
-axes — a different plan method optimizes each.
+Behavioral countermeasures are plan steps (Influence actions against the
+adversary), not probability modifiers. You don't reduce `alarm_risk` — you
+execute a plan to bribe the guard, changing their drives/disposition so their
+alert behavior doesn't fire.
 
 ### Chain composition in outcomes
 
-Instead of magic numbers, plans compose chain links:
+Plan outcomes express only the resolution links. Behavioral links are
+implicit — the planner evaluates them at runtime by consulting its
+knowledge of the adversary's role:
 
 ```acf
-# Before: flat guess, planner can't reason about it
-NOT pursued(self), prob = 0.7
-
-# After: chain-derived, planner sees which links to attack
-# Short-term: detection → alarm → pursuit
+# Resolution links only. Planner fills in behavioral links via role lookup.
+visible(self, $guards), prob = detection_risk(self, $guards)
 NOT pursued(self), prob = 1 - detection_risk(self, $guards)
-                              * alarm_risk($guards)
-                              * pursuit_risk($guards, self)
-
-# Long-term: evidence → attribution
-NOT attributed(self, theft), prob = 1 - evidence_risk(self, $location)
-                                      * attribution_risk($authority, self)
+                              * capture_risk($guards, self)
+NOT attributed(self, theft), prob = 1 - evidence_risk(self, $vault)
+                                      * attribution_risk(law_enforcement, self)
 ```
 
-The planner now knows that investing in stealth reduces the first factor,
-while investing in cover_tracks reduces the second.
-
-### The adversary is also an agent
-
-The adversary follows its own role behaviors. A guard's role defines:
-patrol → alert → defend → arrest. The response chain models how these
-cascade when triggered:
-
-```
-guard detects intruder
-  → guard.alert fires (priority 45): warn community
-    → alert_propagation rule: nearby allies become alert
-      → guard.defend fires (priority 50): engage
-        → combat_chance(guard, intruder) OR
-          guard.arrest fires (priority 40): subdue
-          → capture_risk(guards, intruder)
-```
-
-The planner doesn't fully simulate this chain — it estimates through
-the response chain resolution functions, which encapsulate the expected
-cascade for different adversary archetypes.
-
-### Interrupting the chain
-
-At each link, the actor may have options to prevent escalation:
-
-- **Detected** → attempt Influence.Direct (explain presence) or flee
-- **Identified** → if wearing disguise, identification may fail
-- **Alarm raised** → neutralize_security plan already handles this
-- **Pursuit mounted** → flee_danger plan with run/hide/diversion methods
-- **Evidence left** → cover_tracks plan, already part of heist methods
-
-Plans that include interrupt steps at each link have better expected
-outcomes than plans that hope the first link doesn't fire. The classic
-crew heist includes `disable_alarms` and `cover_tracks` — it attacks
-both the alarm link and the evidence link.
+Between `detection_risk` and `capture_risk` there's an implicit behavioral
+link: "will the guard pursue?" The planner reads the guard's role, sees
+`defend: when region.threat_level > 70, priority = 50`, and assumes yes.
+For a different adversary (distracted merchant, sleeping drunk), the planner
+might skip that link entirely.
 
 ## Open Questions
 

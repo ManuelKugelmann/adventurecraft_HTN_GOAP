@@ -55,9 +55,11 @@ rule detection [social, L3] {
                         effect: observer.knows(identity_of($actor))
 
     # ── Evidence (long-term detection) ───────────────────────────
-    # Every physical action may leave traces. These persist after the
-    # actor leaves. Investigators find them later via track_following
-    # and investigation rules. cover_tracks plan destroys them.
+    # Every physical action may leave traces as ordinary items.
+    # Evidence nodes are items with Physical + Decayable traits.
+    # Subject to normal rules: rain decays them, fire destroys them,
+    # cover_tracks plan Destroys them. No special forensics system.
+    # Investigators find them via track_following (skill check on item).
 
     evidence_left: when $actor.action.completed
                        AND $action.physical_contact > 0,
@@ -65,7 +67,7 @@ rule detection [social, L3] {
                                   - $actor.Skills.stealth * 0.5
                                   - $actor.equipment.gloves * 0.3
                                   + $action.physical_contact * 0.5),
-                   effect: Create(evidence, { location = $location, source = $actor, time = now })
+                   effect: Create(item with Physical + Decayable, { location = $location, traces = $actor, time = now })
 }
 
 _provenance {
