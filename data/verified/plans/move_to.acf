@@ -30,6 +30,20 @@ plan move_to [movement, universal] {
         }
     }
 
+    method sneak {
+        needs {
+            self.knows(route_to($destination, walking))
+            AND self.Skills.stealth > 20
+        }
+        step: do Move.Direct { destination = $destination, secrecy = 0.9 }
+        outcomes {
+            co_located(self, $destination), prob = 0.85
+            NOT visible(self, nearby($destination, 30)), prob = sigmoid(self.Skills.stealth * 0.02)
+            self.Vitals.Stamina -= distance(self, $destination) * self.Physical.Weight * 0.15
+            time += distance(self, $destination) / (self.Movement.Speed * 0.5)
+        }
+    }
+
     method sail {
         needs {
             self.knows(route_to($destination, sailing))

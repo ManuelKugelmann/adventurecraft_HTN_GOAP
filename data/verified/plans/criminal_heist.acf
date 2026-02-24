@@ -52,22 +52,22 @@ plan criminal.heist [criminal, economic] {
         needs { self.Skills.stealth > 40 AND capable(self, lockpicking) }
 
         # Phase 1: Casing (days/weeks of observation)
-        observe_timing:  do Sense.Indirect { target = $target_location }
+        observe_timing:  do acquire_information { about = schedule_of($vault.guards) }
         map_entry:       do acquire_information { about = layout_of($target_location) }
-        identify_window: do Sense.Indirect { target = $vault.guards }
+        spot_weakness:   do acquire_information { about = weakness_of($target_location.security) }
 
         # Phase 2: Tool acquisition
         tool_up:         do acquire_item { source = $lockpicks }
 
         # Phase 3: Infiltration (timed to low-activity window)
-        approach:        do Move.Direct { destination = $target_location, secrecy = 0.9 }
-        bypass_lock:     do gain_entry { target = $target_location }
-        navigate:        do Move.Direct { destination = $vault, secrecy = 0.9 }
+        approach:        do move_to { destination = $target_location }
+        bypass_outer:    do gain_entry { target = $target_location }
+        navigate:        do move_to { destination = $vault }
         crack_vault:     do gain_entry { target = $vault }
 
         # Phase 4: Extraction and vanish
-        grab:            do Transfer.Direct { source = $vault, secrecy = 0.9 }
-        exit:            do Move.Direct { destination = $target_location.exit, secrecy = 0.9 }
+        grab:            do acquire_item { source = $vault }
+        exit_building:   do move_to { destination = $target_location.exit }
         vanish:          do move_to { destination = $safehouse }
 
         outcomes {
@@ -99,13 +99,12 @@ plan criminal.heist [criminal, economic] {
         # Phase 3: Insider disables from within
         insider_disable: do neutralize_security { target = $target_location.alarms, insider = $insider }
 
-        # Phase 4: Walk in during insider's shift
-        enter:           do Move.Direct { destination = $target_location }
-        extract:         do Transfer.Direct { source = $vault }
-
-        # Phase 5: Exit normally, insider covers
-        exit:            do Move.Direct { destination = $target_location.exit }
+        # Phase 4: Enter during insider's shift, extract, leave
+        enter:           do gain_entry { target = $target_location }
+        extract:         do acquire_item { source = $vault }
         escape:          do move_to { destination = $safehouse }
+
+        # Phase 5: Cover trail
         cover:           do cover_tracks { evidence = $access_logs }
 
         outcomes {
@@ -125,15 +124,15 @@ plan criminal.heist [criminal, economic] {
         needs { self.combat_power > 30 }
 
         # Phase 1: Minimal recon (quick drive-by)
-        scout:           do Sense.Indirect { target = $target_location }
+        scout:           do acquire_information { about = properties_of($target_location) }
 
         # Phase 2: Tool up (ram vehicle, heavy tools)
         arm_up:          do acquire_item { source = $ram }
 
         # Phase 3: Breach — speed is everything
-        ram_entry:       do Attack.Direct { target = $target_location.barrier }
-        smash_cases:     do Attack.Direct { target = $vault }
-        grab:            do Transfer.Direct { source = $vault }
+        ram_entry:       do gain_entry { target = $target_location }
+        smash_vault:     do gain_entry { target = $vault }
+        grab:            do acquire_item { source = $vault }
 
         # Phase 4: Immediate flight
         flee:            do move_to { destination = $safehouse }
@@ -170,7 +169,7 @@ plan criminal.heist [criminal, economic] {
         get_invited:     do gain_entry { target = $target_location }
 
         # Phase 5: Extraction under cover
-        extract:         do Transfer.Direct { source = $vault, secrecy = 0.8 }
+        extract:         do acquire_item { source = $vault }
 
         # Phase 6: Vanish — break cover cleanly
         disappear:       do move_to { destination = $safehouse }
@@ -191,8 +190,8 @@ plan criminal.heist [criminal, economic] {
     method opportunistic {
         needs { co_located(self, $target_location) AND NOT visible(self, $vault.guards) }
 
-        spot:            do Sense.Direct { target = $vault }
-        grab:            do Transfer.Direct { source = $vault }
+        spot:            do acquire_information { about = properties_of($vault) }
+        grab:            do acquire_item { source = $vault }
         flee:            do move_to { destination = self.location.adjacent }
 
         outcomes {
