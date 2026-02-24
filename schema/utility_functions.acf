@@ -479,9 +479,57 @@ function can_enter(self, location) [PLAN, candidate] {
     resolves_to: exists method in gain_entry where method.needs(self, location)
 }
 
+# ── DETECTION: plan recognition from observed actions ──────────────
+# Counter blocks on plans define bidirectional adversarial awareness.
+# These functions let the engine match accumulated action observations
+# against known plan templates (the plans referenced by counter blocks).
+#
+# Plan recognition is Bayesian:
+#   P(plan=X | seen steps a,b,c) ∝ P(see a,b,c | plan X) * P(plan X)
+# where P(plan X) is a prior from context (known role, faction, history).
+# Plan steps provide P(see steps | plan X).
+#
+# Prematching: the engine clusters plans by step similarity at load time.
+# At runtime it checks only the matching cluster, not every plan.
+# Plans sharing early steps (heist vs burglary) cluster together —
+# confidence refines as later steps diverge.
+
+function observed_steps(observer, subject, plan_id) [DETECTION, planned] {
+    # Count how many characteristic steps of plan_id the observer has
+    # seen subject perform. Checked against the observer's perception
+    # history (what they actually saw, when). Used in counter conditions.
+    returns: int
+    notes: perception-gated — observer must have actually seen each action
+           (resolved via detection_risk at the time it happened).
+           Decays with time: old observations contribute less.
+           Counter blocks use this: "alert when observed_steps >= 2"
+}
+
+function plan_signature_match(observer, subject) [DETECTION, planned] {
+    # Return the best-matching plan template(s) for subject's observed
+    # behavior, from observer's perspective. Uses prematched clusters.
+    returns: list of (plan_id, confidence)
+    resolves_to: for each plan_cluster, score = observed_steps(observer, subject, plan) / plan.step_count
+    notes: confidence is proportion of plan steps matched, weighted by
+           recency. Multiple plans may match (heist vs burglary share
+           early steps). Returns top matches above threshold.
+           Observer's Sense skill affects what they noticed.
+}
+
+function recognition_confidence(observer, subject, plan_id) [DETECTION, planned] {
+    # How confident is observer that subject is executing plan_id?
+    # Combines observed_steps with contextual priors.
+    returns: float
+    resolves_to: observed_steps(observer, subject, plan_id) / plan_id.step_count
+                 * prior(subject, plan_id)
+    notes: prior comes from subject's known role, faction, history.
+           A known thief near a vault has higher prior for heist than
+           a merchant. Observer's knowledge of subject matters.
+}
+
 _provenance {
     type: design_catalog
     status: draft
     purpose: collect utility function candidates for needs/outcomes evaluation
-    categories: ENGINE is world-truth, KNOWLEDGE is belief-state, DERIVED is data-only, SUGAR is shorthand, PLAN is planner query
+    categories: ENGINE is world-truth, KNOWLEDGE is belief-state, DERIVED is data-only, SUGAR is shorthand, PLAN is planner query, DETECTION is plan recognition
 }

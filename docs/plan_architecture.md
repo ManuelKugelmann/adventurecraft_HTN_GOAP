@@ -390,108 +390,180 @@ link: "will the guard pursue?" The planner reads the guard's role, sees
 For a different adversary (distracted merchant, sleeping drunk), the planner
 might skip that link entirely.
 
-## Counters: Cached Predictions, Not Ceilings
+## Counters: Bidirectional, Cached, Not Ceilings
 
 Counter blocks annotated on plans are **precomputed adversary response
-patterns** — the "standard answer" to a recognized threat signature.
+patterns** — cached predictions of what the opposing side will do.
 They exist for fast planning, not as hard constraints on behavior.
+
+### Counters form a graph
+
+Plans that oppose each other backreference each other through counters.
+Building a secure vault includes checking for known attack patterns.
+Planning a heist includes checking for known security patterns. Each
+side is authored with awareness of the other:
+
+```acf
+plan security.secure_vault [security, economic] {
+    method standard {
+        reinforce: do Modify.Structured { target = $vault_door }
+        guards:    do Influence.Structured { target = $guard_captain }
+        alarm:     do Modify.Structured { target = $alarm_system }
+    }
+    needs { authority_over(self, $vault) }
+    outcomes {
+        NOT accessible($unauthorized, $vault.contents), prob = 0.9
+        time += 48
+    }
+
+    # We know what heists look like — counter their observable steps
+    counter criminal.heist {
+        lockdown  when equipped($subject, lockpicks) AND $subject.pos.near($vault)
+        alert     when count(unfamiliar, near($vault)) >= 3 AND time.is_night
+        reinforce when $vault_door.condition < 50
+    }
+}
+
+plan criminal.heist [criminal, economic] {
+    method classic {
+        intel:  do acquire_information { about = $vault }
+        crack:  do gain_entry { target = $vault_door }
+        grab:   do acquire_item { source = $vault }
+        escape: do move_to { destination = $safehouse }
+    }
+    needs { self.knows(layout_of($vault)) }
+    outcomes {
+        accessible(self, $vault.contents), prob = 0.6
+        visible(self, $guards), prob = detection_risk(self, $guards)
+        time += 120
+    }
+
+    # We know what vault security looks like — counter their defenses
+    counter security.secure_vault {
+        abort     when garrison > crew.weight * 3
+        wait      when patrol.active AND patrol.near($entry_point)
+        improvise when $vault_door.reinforced AND NOT equipped(self, heavy_tools)
+    }
+}
+```
+
+The heist counters the vault's defenses. The vault counters the heist's
+steps. Each plan's counter block references the *opposing plan by ID*
+and lists observable conditions that trigger responses. The counter graph
+is the adversarial structure of the plan library.
+
+### Bidirectional authoring
+
+When `counters.py` generates counters for a new plan, it works both
+directions:
+
+1. **Forward**: What defenses does this plan face? → generate counters
+   referencing known defensive plans
+2. **Backward**: What existing plans does this new plan threaten? →
+   update those plans' counter blocks to recognize the new threat
+
+This means the counter graph stays consistent. Adding `criminal.heist`
+also updates `security.secure_vault` to recognize heist patterns.
+Adding `security.secure_vault` also updates `criminal.heist` to
+recognize new security measures.
+
+### Sequential recognition (not just static pattern match)
+
+Static observables (garrison size, wall height) are easy to check but
+easy to circumvent. Real detection recognizes **sequences of actions**
+that match a known plan's steps.
+
+Counter conditions can reference accumulated observations:
+
+```acf
+counter criminal.heist {
+    # Static: obvious conditions
+    lockdown when garrison < 3 AND time.is_night
+
+    # Sequential: observed steps matching heist template
+    alert    when observed_steps($subject, criminal.heist) >= 2
+    pursue   when observed_steps($subject, criminal.heist) >= 3
+                  AND visible($subject, $guards)
+}
+```
+
+`observed_steps(observer, subject, plan_id)` counts how many of the
+plan's characteristic actions the observer has *actually perceived*
+(gated by `detection_risk` at each step). A thief who scouts the vault
+(step 1) and acquires lockpicks (step 2) triggers `alert` even if each
+action alone looks innocent. The plan template acts as a detector.
+
+Prematching: the engine clusters plans with similar observable footprints
+at load time. `criminal.heist` and `criminal.burglary` share early steps
+(scout, acquire tools). An observer who sees those steps gets a partial
+match against both — confidence refines as later steps diverge.
 
 ### Three tiers of adversary prediction
 
 ```
 Tier 0: Counter lookup (cheapest)
-  "troops massing → counter says fortify"
-  No reasoning. Pattern match on observables, retrieve cached response.
+  "observed_steps >= 2 for heist → counter says alert"
+  Pattern match on observables + step count. Retrieve cached response.
   Any agent can do this. O(1).
 
 Tier 1: Role-based prediction (medium)
   "guard detected me → guard role says alert(45) + defend(50) →
    guard WILL pursue → capture_risk resolves whether they catch me"
   Read adversary's role from knowledge. Estimate which behaviors fire.
+  Read adversary's counter blocks to see what THEY expect from ME.
   Resolve outcomes against self via resolution functions. Depth 1.
 
 Tier 2: Adversary plan simulation (expensive)
-  "their leader owes me a debt and their morale is low →
-   standard response is fortify, but I think I can turn the guard
-   with bribery + leverage → novel plan not in any counter catalog"
+  "their leader owes me a debt and morale is low →
+   standard counter says lockdown, but I think I can turn the guard
+   with bribery + leverage → novel response not in any counter"
   Model adversary drives, relationships, constraints.
-  Run shallow adversary planner (depth 2). Discover emergent responses
-  that weren't pre-annotated. Requires deep knowledge of adversary.
+  Read their counter blocks, find gaps or overrides.
+  Run shallow adversary planner (depth 2). Requires deep knowledge.
 ```
 
-Simple agents (low skills, little knowledge) stop at Tier 0. They follow
-the counter catalog — "if X then Y." This is adequate for most situations
-because the counter catalog covers archetypal threats and responses.
+A Tier 1 thief reads the vault's counter blocks: "they expect lockpick
+approach at night, counter is lockdown. So I'll go during the day with
+a forged key instead." The counter backreference lets the agent reason
+about *what the adversary expects* — and deliberately subvert it.
 
-Smarter agents go deeper. A seasoned general reads the enemy commander's
-disposition, morale, supply situation, and predicts that they'll deviate
-from the standard response. A master thief notices the guard is drunk
-and skips the "flee on detection" response in favor of "talk my way out."
+A Tier 2 strategist goes further: "their counter expects lockdown, but
+the guard captain is underpaid and his family needs medicine. His
+drives will override his role if I apply the right pressure."
 
-### Counters enable quick planning, not limit it
-
-Counter annotations serve three purposes:
-
-1. **Fast path for the planner**: Before running adversary simulation,
-   check if a counter matches the current situation. If yes, use the
-   cached response estimate. Cheap.
-
-2. **Baseline for comparison**: When the planner does run a deeper
-   simulation, the counter provides the expected/standard response.
-   Deviations from the counter are interesting — they indicate the
-   adversary might do something unexpected.
-
-3. **Observable grounding**: Counters are defined over observable state
-   only (`pos`, `weight`, `faction`, `garrison`, `walls`, visible actions).
-   They never reference hidden state (`drives`, `knowledge`, `plans`).
-   This is correct — you can only counter what you can see.
+Simple agents stop at Tier 0. They follow the counter catalog.
+Smarter agents read the adversary's counters to find blind spots.
+The smartest agents find situations where counters don't apply at all.
 
 ### Emergence beyond the catalog
 
-The counter catalog is incomplete by design. It covers common
-threat/response pairs, not every possible situation. Novel responses
-emerge when:
+The counter graph is deliberately incomplete. It covers common
+adversarial pairs, not every situation. Novel responses emerge when:
 
 - An adversary's drives override their role (starving guard abandons post)
 - Relationships create unexpected alliances or betrayals
 - Environmental conditions invalidate standard responses (bridge collapsed,
-  flood blocks retreat)
+  flood blocks retreat path in counter)
 - An agent combines standard plans in a non-standard way
+- A counter's preconditions silently fail (garrison undermanned due to festival)
 
-The planner should treat counters as the default prediction, then check
-whether the specific adversary's state (drives, relationships, knowledge)
-suggests a different response. This is the Tier 1 → Tier 2 transition.
-
-```acf
-# Counter annotation: the standard response to a heist threat
-counter threat.vault_breach {
-    lockdown when $vault.alarm.active AND garrison > 3
-    pursuit  when visible($intruder, $guards) AND NOT $intruder.co_located($vault)
-}
-
-# But at runtime, the planner might discover:
-#   - the guard captain was bribed (behavioral link overridden)
-#   - the garrison is undermanned due to festival (counter precondition fails)
-#   - the intruder is the lord's son (arrest behavior conflicts with duty to lord)
-# These are emergent — no counter annotation needed. The planner handles them
-# by reading the adversary's actual state and running Tier 1/2 prediction.
-```
+The planner treats counters as the default prediction, then checks
+whether the specific adversary's state suggests a different response.
 
 ### Inception depth limit
 
 All tiers respect the depth limit:
 
 - **Tier 0**: No depth (lookup, not simulation)
-- **Tier 1**: Depth 1 — "I predict their behavior from their role"
+- **Tier 1**: Depth 1 — "I read their role and counters, predict behavior"
 - **Tier 2**: Depth 2 — "I predict their plan, including their prediction
-  of my most likely response"
+  of my most likely approach (from their counter blocks)"
 
 No agent goes to depth 3+. The marginal value of deeper inception drops
 fast, and the computational cost rises exponentially. A master strategist
-at depth 2 thinks: "if I feint left, they'll expect me to go right, so
-I'll actually go left." They do NOT think: "if I feint left, they'll
-think I think they'll expect me to go right, so they'll..." That's
-infinite regress, not intelligence.
+at depth 2 thinks: "they expect me to go at night (their counter), so
+I'll go during the day. They might adapt, but I can't predict further."
+That's the ceiling. Deeper is infinite regress, not intelligence.
 
 ## Open Questions
 

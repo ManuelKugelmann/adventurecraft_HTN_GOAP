@@ -246,12 +246,22 @@ docs/            spec, summary, source catalog
 
 - Counter blocks on plans are **cached predictions** — precomputed "standard response"
   to observable threat signatures. Fast lookup for the planner.
+- Counters are **bidirectional**: offense counters defense, defense counters offense.
+  `secure_vault` has counters for heist patterns. `criminal.heist` has counters for
+  vault security. Each references the opposing plan by ID.
+- Counter conditions can use `observed_steps(observer, subject, plan_id)` for sequential
+  detection — matching accumulated action observations against a plan template, not just
+  static observables. Prematched plan clusters avoid checking every plan in the library.
 - Counters are NOT the only way adversaries respond. They cover archetypal patterns.
   Agents with deeper knowledge can predict novel responses beyond the catalog.
 - Three tiers: Tier 0 (counter lookup, O(1)), Tier 1 (role-based prediction, depth 1),
   Tier 2 (adversary plan simulation, depth 2). Simple agents stop at Tier 0.
+- Tier 1+ agents read the adversary's counter blocks to see what they expect,
+  then deliberately subvert it. The backreference enables strategic reasoning.
 - Counter conditions ONLY reference observable state (pos, weight, faction, garrison,
   walls, equipped, visible actions, terrain). NEVER: drives, plans, knowledge, mood, skills.
+- `observed_steps` is perception-gated: observer must have actually detected each action
+  (resolved via `detection_risk` at the time it happened).
 - Adversary behavioral responses (guard raises alarm, authority investigates) are NOT
   world rules. They are role-driven decisions. The planner predicts them from knowledge
   of the adversary's role and drives.
