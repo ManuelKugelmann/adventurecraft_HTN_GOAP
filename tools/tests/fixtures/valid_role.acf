@@ -1,0 +1,15 @@
+role blacksmith [economic, craft] {
+    smelt:  when forge.fuel > 0 AND ore.quantity > 0,
+            do Modify.Structured { target = $ore }, priority = 10
+    hammer: when ingot.ready AND forge.temperature > 800,
+            do Modify.Direct { target = $ingot }, priority = 15
+    sell:   when inventory.finished_goods > 0 AND market.open,
+            do Transfer.Indirect { target = $market }, priority = 5
+}
+
+_provenance {
+    sources = [{ type = test_fixture, id = blacksmith, confidence = 1.0 }]
+    model = seed
+    verified = true
+    reviewer = test
+}

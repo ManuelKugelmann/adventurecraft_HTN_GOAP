@@ -1,0 +1,19 @@
+plan reusable.bribe [social, economic, reusable] {
+    method direct_bribe {
+        when { self.inventory.value > $target.drives.luxury * 2 }
+        assess: do Sense.Indirect { target = $target }
+        offer:  do Influence.Indirect { target = $target }
+            prob = sigmoid(self.inventory.value * 0.1 - $target.drives.moral)
+            fail = ABORT
+        pay:    do Transfer.Direct { source = $self, target = $target }
+        ABORT:  do Move.Direct { destination = $safehouse }
+    }
+    done { $target.faction == self.faction }
+}
+
+_provenance {
+    sources = [{ type = test_fixture, id = bribe, confidence = 1.0 }]
+    model = seed
+    verified = true
+    reviewer = test
+}

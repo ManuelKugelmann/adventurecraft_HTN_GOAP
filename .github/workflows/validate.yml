@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'data/**/*.acf'
+      - 'schema/**'
+      - 'tools/validate.py'
 
 jobs:
   validate:

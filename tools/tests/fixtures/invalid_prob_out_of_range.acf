@@ -1,0 +1,6 @@
+plan test.bad_prob [test] {
+    method default {
+        step_a: do Move.Direct { target = $destination }
+            prob = 1.5
+    }
+}

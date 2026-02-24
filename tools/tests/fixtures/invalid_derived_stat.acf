@@ -1,0 +1,6 @@
+plan test.derived [test] {
+    method default {
+        step_a: do Influence.Direct { target = $npc }
+            prob = sigmoid(self.attributes.authority - 10)
+    }
+}

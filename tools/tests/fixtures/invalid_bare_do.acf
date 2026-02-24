@@ -1,0 +1,5 @@
+plan test.bare_do [test] {
+    method default {
+        do Move.Direct { target = $destination }
+    }
+}
