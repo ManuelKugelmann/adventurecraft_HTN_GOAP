@@ -3,11 +3,13 @@
 # Distinguishes heist methods: classic crew, solo infiltration,
 # inside job, smash and grab, security probing.
 #
-# Running this plan = the guard is actively investigating a suspected
-# heist. The active plan is observable — a thief can see the guard
-# has shifted from routine patrol to focused investigation.
+# The suspect plan's ONLY job: match observed action patterns against
+# known heist methods, then add the best-matching reconstructed plan
+# to the guard's model of the subject. The subject's node in the
+# guard's knowledge now has criminal.heist in its active plan slot.
 #
-# Requires more planning budget than base suspect.theft.
+# Escalation (alert, pursue, arrest) comes from the guard's existing
+# role behaviors reacting to the model update — not from this plan.
 
 plan suspect.heist [detection, criminal, security] {
 
@@ -24,12 +26,9 @@ plan suspect.heist [detection, criminal, security] {
             AND self.knows(performed($subject, acquire_information, about = schedule_of($post.guards)))
             AND self.knows(count(co_located($subject, AlliedWith)) >= 3)
         }
-        assess:  do Sense.Structured { target = $subject }
-        report:  do Influence.Direct { target = $authority, info = suspected_heist_crew }
-        lockdown: do Influence.Direct { target = $garrison, info = lockdown }
+        assess: do Sense.Structured { target = $subject }
         outcomes {
-            $authority.knows(suspected($subject, criminal.heist))
-            $garrison.alert = true
+            self.model($subject).active_plan = criminal.heist.classic
             time += 10
         }
     }
@@ -42,10 +41,9 @@ plan suspect.heist [detection, criminal, security] {
             AND self.knows(performed($subject, acquire_item, type = lockpicks))
             AND NOT self.knows(co_located($subject, AlliedWith))
         }
-        watch:   do Sense.Indirect { target = $subject }
-        report:  do Influence.Direct { target = $authority, info = suspected_infiltrator }
+        assess: do Sense.Structured { target = $subject }
         outcomes {
-            $authority.knows(suspected($subject, criminal.heist))
+            self.model($subject).active_plan = criminal.heist.infiltration
             time += 8
         }
     }
@@ -58,12 +56,10 @@ plan suspect.heist [detection, criminal, security] {
             AND co_located($insider, $post)
             AND self.knows($insider.behavior_changed)
         }
-        watch_insider: do Sense.Indirect { target = $insider }
-        watch_contact: do Sense.Indirect { target = $unknown }
-        report:        do Influence.Direct { target = $authority, info = suspected_inside_job }
+        assess: do Sense.Structured { target = $insider }
         outcomes {
-            $authority.knows(suspected($unknown, criminal.heist))
-            $authority.knows(suspected($insider, conspiracy))
+            self.model($unknown).active_plan = criminal.heist.inside_job
+            self.model($insider).active_plan = criminal.heist.inside_job
             time += 15
         }
     }
@@ -75,26 +71,24 @@ plan suspect.heist [detection, criminal, security] {
             self.knows(performed($group, Move, destination = $post, speed = fast))
             AND (self.knows($group.equipped(ram)) OR self.knows($group.combat_power > 30))
         }
-        warn:    do Influence.Direct { target = $garrison, info = imminent_attack }
-        brace:   do Defense.Direct { target = $post }
+        assess: do Sense.Structured { target = $group }
         outcomes {
-            $garrison.alert = true
+            self.model($group).active_plan = criminal.heist.smash_and_grab
             time += 2
         }
     }
 
     # ── Security probing ───────────────────────────────────────
     # Someone testing locks, checking alarm triggers, timing patrols
-    # Not a full heist yet — early warning, heighten alertness
+    # Not a full heist yet — generic plan, low confidence
     method probe {
         needs {
             self.knows(performed($subject, Sense, target = $post.security))
             OR self.knows(performed($subject, Modify, target = $post.locks, intent = test))
         }
-        watch:   do Sense.Indirect { target = $subject }
-        challenge: do Influence.Direct { target = $subject, intent = identify }
+        assess: do Sense.Structured { target = $subject }
         outcomes {
-            self.alert = true
+            self.model($subject).active_plan = criminal.heist
             time += 5
         }
     }

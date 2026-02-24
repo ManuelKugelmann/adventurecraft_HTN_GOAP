@@ -467,14 +467,14 @@ also updates `security.secure_vault` to recognize heist patterns.
 Adding `security.secure_vault` also updates `criminal.heist` to
 recognize new security measures.
 
-### Sequential recognition via reasoning plans
+### Sequential recognition via suspect plans
 
 Static observables (garrison size, wall height) are easy to check but
 easy to circumvent. Real detection recognizes **sequences of actions**.
-This is what reasoning plans do — their `needs` check knowledge for
+This is what suspect plans do — their `needs` check knowledge for
 multiple observed actions that together suggest a specific plan.
 
-Counter blocks handle static conditions. Reasoning plans handle
+Counter blocks handle static conditions. Suspect plans handle
 sequential pattern recognition. The guard's role triggers both:
 
 ```acf
@@ -484,17 +484,16 @@ counter criminal.heist {
     reinforce when $vault_door.condition < 50
 }
 
-# Reasoning plan (sequential, costs planning budget)
-plan reason.vault_threat [reasoning, detection, security] {
-    method infiltration_pattern {
+# Suspect plan (sequential, costs planning budget)
+plan suspect.heist [detection, criminal, security] {
+    method solo_infiltrator {
         needs {
             self.knows(performed($subject, Sense, target = $post, count >= 2))
             AND self.knows(performed($subject, acquire_item, type = lockpicks))
         }
         assess: do Sense.Structured { target = $subject }
         outcomes {
-            self.believes(planning($subject, criminal.heist)),
-                prob = observation_chance(self, $subject)
+            self.model($subject).active_plan = criminal.heist.infiltration
             time += 8
         }
     }
@@ -502,9 +501,9 @@ plan reason.vault_threat [reasoning, detection, security] {
 ```
 
 Counter blocks fire on observable world state (no reasoning needed).
-Reasoning plans fire on accumulated knowledge (requires planning budget).
-Both produce responses — counters via cached lookup, reasoning via
-belief-driven role behaviors.
+Suspect plans fire on accumulated knowledge (requires planning budget).
+Both produce responses — counters via cached lookup, suspect plans via
+model update → role-driven escalation.
 
 ### Adversary prediction tiers
 
@@ -513,9 +512,9 @@ Tier 0: Counter lookup (cheapest, no planning budget)
   "garrison < 3 and it's night → counter says lockdown"
   Static observable conditions. O(1). Any agent.
 
-Tier 1: Reasoning plan (planning budget required)
+Tier 1: Suspect plan (planning budget required)
   "I've seen them scout twice and acquire lockpicks →
-   reason.vault_threat concludes heist → alert authority"
+   suspect.heist concludes infiltration → model updated → role escalates"
   Sequential pattern matching. Knowledge-based. Trained agents.
 
 Tier 2: Adversary plan simulation (large planning budget)
@@ -653,16 +652,18 @@ the model entry clears. No flags to reset.
 3. If perceived: guard's filtered view now includes the action
 4. Guard role triggers suspect plan: "do suspect.heist { subject = $subject }"
 5. Suspect plan needs check guard's filtered history view
-6. If match: plan executes — watch subject, report to authority
-7. Suspect plan outcomes: authority.knows(suspected($subject, heist))
-8. Authority's role behaviors activate (investigate, issue warrant, etc.)
+6. If match: suspect plan adds reconstructed plan to guard's model of subject
+   → self.model($subject).active_plan = criminal.heist.infiltration
+7. Guard's existing role behaviors react to the model update:
+   → "my model of a nearby agent has an active criminal plan"
+   → alert, report, pursue, arrest (all role behaviors, not suspect plan steps)
 ```
 
-### Suspect plans are regular plans
+### Suspect plans only update the model
 
-A suspect plan is a regular plan with needs and outcomes. Its needs
-query sim history (filtered). Its steps are concrete actions (Sense,
-Influence). Its outcomes report suspicion to authority figures:
+A suspect plan's ONLY job: match observed action patterns, then add
+the best-matching reconstructed plan to the agent's model of the
+subject. Escalation is the role's concern, not the suspect plan's:
 
 ```acf
 plan suspect.heist [detection, criminal, security] {
@@ -671,10 +672,9 @@ plan suspect.heist [detection, criminal, security] {
             self.knows(performed($subject, Sense, target = $post, count >= 2))
             AND self.knows(performed($subject, acquire_item, type = lockpicks))
         }
-        watch:  do Sense.Indirect { target = $subject }
-        report: do Influence.Direct { target = $authority, info = suspected_infiltrator }
+        assess: do Sense.Structured { target = $subject }
         outcomes {
-            $authority.knows(suspected($subject, criminal.heist))
+            self.model($subject).active_plan = criminal.heist.infiltration
             time += 8
         }
     }
@@ -686,8 +686,10 @@ The guard doesn't magically detect a heist. They:
 2. **Perceived** the same person acquiring lockpicks (another detected action)
 3. Both events are in sim history; guard's filter includes both
 4. Guard role triggers `suspect.heist` → plan's needs check history
-5. Needs met → plan executes: watch subject, report to authority
-6. Authority now knows `suspected($subject, heist)` → their role activates
+5. Needs met → plan adds `criminal.heist.infiltration` to guard's
+   model of the subject (truncated — guard doesn't know exact step)
+6. Guard role sees `model($subject).active_plan == criminal.*` →
+   existing alert/report/arrest behaviors fire
 
 ### Planning budget limits suspicion depth
 
@@ -755,4 +757,3 @@ changes their behavior), and adapt accordingly.
 - Should `outcomes` on composite plans be declared or computed from sub-plans?
 - How do agents share knowledge? (telling, teaching, written records)
 - How should planning budget per tick scale? Fixed per-agent, skill-based, trait-based?
-- Should `suspected()` facts propagate across authority networks automatically?

@@ -2,11 +2,14 @@
 # Generic guard: reacts to witnessed events and threat levels.
 # Variants inherit these behaviors and add:
 #   1. Observation (Sense actions that feed sim history perception)
-#   2. Suspicion (trigger suspect.* plans — the active plan IS the suspicion)
-#   3. Escalation (suspect plan outcomes report to authority, trigger defense)
+#   2. Suspicion (trigger suspect.* plans — updates model of subject)
+#   3. Escalation (role behaviors react to model updates + witnessed crimes)
 #
 # Knowledge = filtered view of sim history. Guards don't store
 # separate facts — they query what they've perceived.
+#
+# Suspect plans ONLY update self.model($subject).active_plan.
+# Escalation comes from the role behaviors below reacting to that.
 
 role guard [military] {
     active_when { assigned_shift }
@@ -23,12 +26,17 @@ role guard [military] {
              do Defense.Direct { target = $region },
              priority = 50
 
-    arrest:  when witnessed(crime) AND self.skills.melee > perpetrator.skills.active_defense,
-             do Attack.Indirect { target = $perpetrator, intensity = 0.4 },
+    # Arrest: witnessed crime OR model says subject has active criminal plan
+    arrest:  when (witnessed(crime) OR self.model($subject).active_plan matches criminal.*)
+                 AND self.skills.melee > $subject.skills.active_defense,
+             do Attack.Indirect { target = $subject, intensity = 0.4 },
              priority = 40
 
-    report:  when witnessed(crime),
-             do Influence.Direct { target = $authority, info = $crime },
+    # Report: witnessed crime OR suspect plan concluded
+    report:  when witnessed(crime)
+                 OR self.model($subject).active_plan matches criminal.*
+                 OR self.model($subject).active_plan matches military.*,
+             do Influence.Direct { target = $authority, info = self.model($subject).active_plan },
              priority = 35
 }
 
@@ -91,10 +99,11 @@ role gate_guard : guard [military, security] {
                      do suspect.hostile_approach { group = $hostiles },
                      priority = 50
 
-    # Deny entry to known criminals or hostile faction
+    # Deny entry to known criminals, hostile faction, or suspected threats
     deny_entry:      when $traveler.entering($gate)
                          AND (edge(self.faction, $traveler.faction, disposition) < -0.5
-                              OR self.knows($traveler committed crime)),
+                              OR self.knows($traveler committed crime)
+                              OR self.model($traveler).active_plan matches criminal.*),
                      do Influence.Direct { target = $traveler, intent = turn_away },
                      priority = 35
 }
@@ -142,7 +151,9 @@ role caravan_guard : guard [military, economic] {
                      priority = 30
 
     # Defensive formation: position between threat and cargo
-    shield_cargo:    when region.threat_level > 50,
+    # Triggers on high threat level OR when suspect plan identified an ambush
+    shield_cargo:    when region.threat_level > 50
+                         OR self.model($group).active_plan matches military.*,
                      do Defense.Direct { target = $cargo },
                      priority = 50
 }

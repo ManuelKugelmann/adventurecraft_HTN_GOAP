@@ -1,20 +1,20 @@
 # ── Suspect Plans (Base) ─────────────────────────────────────────
 # When an agent suspects criminal or hostile activity, they execute
-# a suspect plan. The plan itself IS the suspicion — an active plan
-# running on the agent. Observable: the agent's behavior changes
-# (watching more carefully, questioning people, reporting).
+# a suspect plan. The suspect plan's ONLY job: match observed action
+# patterns, then add the best-matching reconstructed plan to the
+# agent's model of the subject. The subject's node in the agent's
+# knowledge now has a criminal/hostile plan in its active plan slot.
+#
+# Escalation (alert, report, pursue, arrest) comes from the agent's
+# existing role behaviors reacting to the model update — not from
+# the suspect plan itself.
 #
 # Agent knowledge = filtered view of sim history.
 # self.knows(performed(...)) queries sim history filtered by what
-# this agent actually perceived (detection_risk, co_location,
-# alertness, line of sight). No duplication — one history, many views.
+# this agent actually perceived. No duplication.
 #
-# Suspect plans consume planning budget. The active plan is a virtual
-# item on the executing agent — other agents can perceive that the
-# guard is investigating (their behavior is different from routine).
-#
-# Dismissal: if investigation finds nothing, the plan ends naturally
-# (no method's needs remain satisfied). Suspicion lifts.
+# Dismissal: if no method's needs are satisfied, the plan can't run
+# and the subject's model stays clean. No false suspicion.
 
 plan suspect.theft [detection, criminal] {
 
@@ -29,10 +29,9 @@ plan suspect.theft [detection, criminal] {
             self.knows(performed($subject, acquire_information, about = layout_of($location)))
             AND self.knows(performed($subject, acquire_item, type = tools))
         }
-        watch:  do Sense.Indirect { target = $subject }
-        report: do Influence.Direct { target = $authority, info = suspected_heist }
+        assess: do Sense.Structured { target = $subject }
         outcomes {
-            $authority.knows(suspected($subject, criminal.heist))
+            self.model($subject).active_plan = criminal.heist
             time += 5
         }
     }
@@ -45,10 +44,9 @@ plan suspect.theft [detection, criminal] {
             AND self.knows(performed($subject, Move, destination = $building))
             AND time.is_night
         }
-        watch:  do Sense.Indirect { target = $subject }
-        report: do Influence.Direct { target = $authority, info = suspected_burglary }
+        assess: do Sense.Structured { target = $subject }
         outcomes {
-            $authority.knows(suspected($subject, criminal.burglary))
+            self.model($subject).active_plan = criminal.burglary
             time += 3
         }
     }
@@ -60,9 +58,9 @@ plan suspect.theft [detection, criminal] {
             self.knows(performed($subject, Move, target = $mark, distance < 1))
             AND self.knows(performed($subject, Transfer, source = $mark))
         }
-        intervene: do Influence.Direct { target = $subject, intent = halt }
+        assess: do Sense.Structured { target = $subject }
         outcomes {
-            NOT $subject.active_plan == criminal.pickpocket, prob = 0.5
+            self.model($subject).active_plan = criminal.pickpocket
             time += 2
         }
     }
@@ -74,10 +72,9 @@ plan suspect.theft [detection, criminal] {
             self.knows(performed($subject, Influence, target = $mark, frequency >= 3))
             AND self.knows(performed($subject, establish_cover))
         }
-        watch:  do Sense.Structured { target = $subject }
-        report: do Influence.Direct { target = $authority, info = suspected_fraud }
+        assess: do Sense.Structured { target = $subject }
         outcomes {
-            $authority.knows(suspected($subject, criminal.confidence_scheme))
+            self.model($subject).active_plan = criminal.confidence_scheme
             time += 10
         }
     }
@@ -96,10 +93,9 @@ plan suspect.smuggling [detection, criminal] {
             OR (self.knows(performed($subject, Move, avoiding = $checkpoint))
                 AND $subject.cargo.weight > 10)
         }
-        inspect: do Sense.Direct { target = $subject.cargo }
-        report:  do Influence.Direct { target = $authority, info = suspected_smuggling }
+        assess: do Sense.Structured { target = $subject }
         outcomes {
-            $authority.knows(suspected($subject, criminal.smuggling))
+            self.model($subject).active_plan = criminal.smuggling
             time += 5
         }
     }
@@ -110,10 +106,9 @@ plan suspect.smuggling [detection, criminal] {
             self.knows(performed($subject, Influence, target = self, intent = present_papers))
             AND self.knows($subject.papers.quality < 0.5)
         }
-        confiscate: do Transfer.Direct { source = $subject.papers }
-        detain:     do Influence.Direct { target = $subject, intent = hold }
+        assess: do Sense.Structured { target = $subject }
         outcomes {
-            NOT $subject.has($subject.papers)
+            self.model($subject).active_plan = criminal.smuggling
             time += 10
         }
     }
@@ -133,9 +128,8 @@ plan suspect.hostile_approach [detection, military] {
             AND count($group) >= 3
         }
         assess: do Sense.Structured { target = $group }
-        warn:   do Influence.Direct { target = $authority, info = hostile_approach }
         outcomes {
-            $authority.knows(suspected($group, military.ambush))
+            self.model($group).active_plan = military.ambush
             time += 3
         }
     }

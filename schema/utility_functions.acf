@@ -350,10 +350,12 @@ function performed(subject, action_type) [KNOWLEDGE, planned] {
     returns: fact
 }
 
-function suspected(subject, plan_id) [KNOWLEDGE, planned] {
-    # Someone has reported suspicion about subject executing plan_id.
-    # Created as an outcome of suspect.* plans (guard reports to authority).
-    # Authorities receiving this fact may activate investigation behaviors.
+function suspected(subject, plan_id) [KNOWLEDGE, candidate] {
+    # Authority has been informed that subject may be executing plan_id.
+    # NOT created by suspect plans (those update self.model() directly).
+    # Created when a guard's role behavior reports to authority via
+    # Influence.Direct — the authority's filtered view now includes
+    # the report. The authority can then query: self.knows(suspected(...)).
     # Gates: investigation plans, arrest plans, warrant issuance
     returns: fact
 }

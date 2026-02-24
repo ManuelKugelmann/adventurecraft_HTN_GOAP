@@ -1,11 +1,11 @@
 # ── Suspect Ambush (Route-Specialized) ───────────────────────────
-# Specialized suspicion plans for caravan guards and route patrols.
-# Recognizes ambush, banditry, and threat patterns from terrain cues
-# and observed movement along trade routes.
+# Specialized suspect plan for caravan guards and route patrols.
+# Matches observed terrain cues and movement patterns against known
+# ambush methods, then adds reconstructed plan to agent's model
+# of the suspected group/individual.
 #
-# Running this plan = the guard is actively scanning for ambush.
-# Observable: guard behavior shifts from routine escort to
-# heightened alertness, flank-checking, speed changes.
+# Escalation (warn caravan, form up, defend) comes from the
+# caravan_guard role reacting to the model update.
 
 plan suspect.ambush [detection, military] {
 
@@ -23,10 +23,8 @@ plan suspect.ambush [detection, military] {
             AND self.knows(visible(self, $obstruction) AND $obstruction.blocking($route))
         }
         assess: do Sense.Structured { target = $group }
-        warn:   do Influence.Direct { target = $caravan_master, info = ambush_ahead }
-        halt:   do Influence.Direct { target = $caravan, info = halt }
         outcomes {
-            $caravan_master.knows(suspected($group, military.ambush))
+            self.model($group).active_plan = military.ambush
             time += 5
         }
     }
@@ -39,24 +37,24 @@ plan suspect.ambush [detection, military] {
             AND self.knows(performed($scout, Move, parallel_to = $route))
             AND NOT edge(self.faction, $scout.faction, disposition) > 0
         }
-        track:  do Sense.Indirect { target = $scout }
-        warn:   do Influence.Direct { target = $caravan_master, info = being_scouted }
+        assess: do Sense.Structured { target = $scout }
         outcomes {
-            $caravan_master.knows(suspected($scout, scouting))
+            self.model($scout).active_plan = military.ambush
             time += 3
         }
     }
 
     # ── Unusual quiet ───────────────────────────────────────────
     # No wildlife, no travelers — area may be controlled by hostiles
+    # Can't attribute to a specific group — model stays empty but
+    # the guard's own alert state rises (role behavior handles this)
     method absence_pattern {
         needs {
             count(nearby(self, 100), fauna) == 0
             AND count(nearby(self, 200), traveler) == 0
             AND terrain.normally_populated
         }
-        scan:   do Sense.Indirect { target = $route.flanks }
-        warn:   do Influence.Direct { target = $caravan_master, info = suspicious_quiet }
+        assess: do Sense.Indirect { target = $route.flanks }
         outcomes {
             self.alert = true
             time += 5
@@ -64,18 +62,17 @@ plan suspect.ambush [detection, military] {
     }
 
     # ── Roadblock ───────────────────────────────────────────────
-    # Felled tree, overturned cart, or other obstacle forcing a stop
+    # Felled tree, overturned cart — suggests prepared ambush
+    # Attacker unknown, but model $unknown with generic ambush plan
     method roadblock {
         needs {
             visible(self, $obstruction)
             AND $obstruction.blocking($route)
             AND NOT $obstruction.natural
         }
-        scan_flanks: do Sense.Indirect { target = nearby($obstruction, 50) }
-        warn:        do Influence.Direct { target = $caravan_master, info = roadblock_trap }
-        form_up:     do Defense.Structured { target = $caravan }
+        assess: do Sense.Indirect { target = nearby($obstruction, 50) }
         outcomes {
-            $caravan_master.knows(suspected($unknown, military.ambush))
+            self.model($unknown).active_plan = military.ambush
             time += 3
         }
     }
