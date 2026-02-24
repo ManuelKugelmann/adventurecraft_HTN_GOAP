@@ -37,7 +37,7 @@ plan criminal.heist [criminal, economic] {
 
         outcomes {
             accessible(self, $vault.contents), prob = 0.6
-            visible(self, $vault.guards), prob = 0.4
+            visible(self, $vault.guards), prob = 1 - sigmoid(self.Skills.stealth + $crew.Skills.stealth - $vault.guards.Skills.observation)
             edge(self, law_enforcement, disposition) -= 0.3
             time += 120
         }
@@ -72,6 +72,7 @@ plan criminal.heist [criminal, economic] {
 
         outcomes {
             accessible(self, $vault.contents), prob = 0.5
+            visible(self, $vault.guards), prob = 1 - sigmoid(self.Skills.stealth - $target_location.security_level)
             self.Vitals.Stamina -= 30
             time += 90
         }
@@ -139,7 +140,7 @@ plan criminal.heist [criminal, economic] {
 
         outcomes {
             accessible(self, $vault.contents), prob = 0.75
-            visible(self, nearby($target_location, 100)), prob = 0.95
+            visible(self, nearby($target_location, 100)), prob = 1 - sigmoid(self.Skills.stealth - 50)
             edge(self, law_enforcement, disposition) -= 0.5
             $target_location.barrier.Physical.Integrity -= 80
             time += 5
@@ -196,7 +197,7 @@ plan criminal.heist [criminal, economic] {
 
         outcomes {
             accessible(self, $vault.contents), prob = 0.4
-            visible(self, nearby(self, 20)), prob = 0.6
+            visible(self, nearby(self, 20)), prob = 1 - sigmoid(self.Skills.stealth - 10)
             edge(self, law_enforcement, disposition) -= 0.2
             time += 2
         }
