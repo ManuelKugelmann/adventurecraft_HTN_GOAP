@@ -49,7 +49,7 @@ plan neutralize_security [criminal, access] {
         wait:      do Sense.Indirect { target = $target }
         time_it:   do Move.Direct { destination = $target.blind_spot }
         outcomes {
-            NOT visible(self, $target), prob = sigmoid(self.Skills.stealth * 0.02)
+            NOT visible(self, $target), prob = 1 - detection_risk(self, $target)
             time += 15
         }
     }

@@ -33,7 +33,7 @@ plan gain_entry [access, universal] {
         outcomes {
             NOT locked($target), prob = 0.9
             $target.Physical.Integrity -= 50
-            visible(self, nearby(self, 30)), prob = 1 - sigmoid(self.Skills.stealth - $target.Physical.Integrity * 0.5)
+            visible(self, nearby(self, 30)), prob = detection_risk(self, nearby(self, 30))
             time += 3
         }
     }

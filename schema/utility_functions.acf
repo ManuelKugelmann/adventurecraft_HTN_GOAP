@@ -54,6 +54,16 @@ function co_located(a, b) [ENGINE, core] {
     notes: cheaper than distance < threshold
 }
 
+function detection_risk(actor, observers) [ENGINE, planned] {
+    # Probability that actor is detected by observers during current action.
+    # Engine resolves from: actor.Skills.stealth, actor.equipment.stealth_bonus,
+    # observer.Skills.observation, lighting, concealment, noise, distance.
+    # Plans declare detection as outcome; engine fills in the probability.
+    returns: float
+    depends: actor.Skills.stealth, actor.equipment, observers.Skills.observation, Lighting, Concealment, Noise
+    notes: replaces inlined sigmoid expressions in plan outcomes
+}
+
 function edge(a, b, axis) [ENGINE, core] {
     # Relationship value between two nodes on a given axis
     # Axes: debt, reputation, affection, familiarity, authority, ownership, disposition
