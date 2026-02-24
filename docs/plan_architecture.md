@@ -565,6 +565,130 @@ at depth 2 thinks: "they expect me to go at night (their counter), so
 I'll go during the day. They might adapt, but I can't predict further."
 That's the ceiling. Deeper is infinite regress, not intelligence.
 
+## Plan Detection in the Knowledge Model
+
+An agent's currently executing plan is in `self.knowledge` — but only
+for *self*. No one else can see your plan. Observers see **actions**,
+not plans. Plan detection is inference from observed actions, using the
+observer's own knowledge of what plans exist.
+
+### How it works
+
+```
+1. Actor executes plan step (e.g. gain_entry at $vault_door)
+2. detection_risk world rule fires → observer perceives or doesn't
+3. If perceived: observer.knowledge += "$actor performed gain_entry at $vault_door"
+4. Observer's role has watch behaviors keyed to specific plan templates
+5. observed_steps(observer, actor, plan_id) queries observer's own knowledge:
+   "how many actions in my knowledge about $actor match steps in plan_id?"
+6. When threshold met → role behavior fires (alert, challenge, pursue)
+```
+
+The observer never sees the actor's plan. They see actions, accumulate
+facts in their own knowledge, and match those facts against plan
+templates they know about (from training, experience, role).
+
+### `observed_steps` is a knowledge query
+
+`observed_steps(observer, subject, plan_id)` is NOT a special detection
+tracker. It's a query over the observer's knowledge base:
+
+```
+observed_steps(self, $actor, criminal.heist) =
+    count(self.knowledge WHERE
+        subject == $actor
+        AND action_type IN criminal.heist.steps
+        AND time > now - decay_window)
+```
+
+The observer must:
+1. **Know about the plan template** — a guard trained for vault duty
+   knows `criminal.heist` and `criminal.burglary` exist. A farmer doesn't.
+2. **Have perceived the actions** — each action was gated by `detection_risk`
+   at the time it happened. Undetected actions aren't in the observer's knowledge.
+3. **Remember** — old observations decay. A scout seen two weeks ago
+   contributes less than one seen yesterday.
+
+This means plan detection is naturally bounded by the observer's
+knowledge and perception. A vault guard with high observation skill
+and training in heist patterns detects a casing thief. A sleepy gate
+guard with no heist training doesn't — same actions, different knowledge.
+
+### Guard variants are trained watchers
+
+Different guard posts train different counter-awareness. The guard's
+role declares which plan templates they watch for. This is their job
+description:
+
+```acf
+role vault_guard : guard [military, security] {
+    # Knows about heist and burglary patterns (training)
+    watch_suspect: when observed_steps(self, $subject, criminal.heist) >= 1,
+                   do Sense.Indirect { target = $subject },
+                   priority = 25
+    alert_threat:  when observed_steps(self, $subject, criminal.heist) >= 2,
+                   do Influence.Direct { target = $authority },
+                   priority = 45
+}
+
+role gate_guard : guard [military, security] {
+    # Knows about smuggling and unauthorized entry patterns
+    watch_smuggle: when observed_steps(self, $subject, criminal.smuggling) >= 1,
+                   do Sense.Direct { target = $subject.cargo },
+                   priority = 30
+}
+
+role market_guard : guard [military, economic] {
+    # Knows about pickpocket and shoplifting patterns
+    watch_theft:   when observed_steps(self, $subject, criminal.pickpocket) >= 1,
+                   do Sense.Indirect { target = $subject },
+                   priority = 25
+}
+```
+
+The plan template ID in `observed_steps` does double duty:
+- It's the plan the guard is trained to recognize (knowledge)
+- It's the plan whose counter block fires if the threshold is met
+
+A vault guard who witnesses `acquire_information { about = layout }` +
+`acquire_item { source = lockpicks }` has `observed_steps = 2` for
+`criminal.heist`. Their `alert_threat` behavior fires. A gate guard
+seeing the same actions has `observed_steps = 0` for
+`criminal.smuggling` — different template, no match, no alert.
+
+### Escalation ladder
+
+Guard behaviors form a natural escalation from observation to force:
+
+```
+observed_steps = 0:  routine patrol / scan (base guard)
+observed_steps = 1:  focus attention on subject (Sense, watch)
+observed_steps >= 2: alert authority, challenge subject (Influence)
+observed_steps >= 3: confront / arrest (Attack.Indirect / Defense)
+threat_level > 70:   defend with force (inherited from base guard)
+```
+
+The thresholds are per-variant and per-plan. A vault guard escalates
+faster for heist patterns than a gate guard does for smuggling patterns,
+because the stakes are higher.
+
+### What the thief sees (Tier 1+)
+
+A Tier 1+ thief reasoning about the vault guard:
+
+1. "I know there's a vault_guard role"
+2. "vault_guard watches for `criminal.heist` (I can read their role)"
+3. "Their `alert_threat` fires at `observed_steps >= 2`"
+4. "So I need to keep my observable heist steps below 2, or make sure
+   each step passes detection_risk — i.e., they don't see me do it"
+5. "Their `scan_area` uses Sense.Indirect with range 30 — I need to
+   stay beyond 30 or have stealth > their observation"
+
+The counter backreference is the thief reading the guard's role to
+understand their detection thresholds and blind spots. This is why
+bidirectional awareness matters — the guard's training (what plans
+they watch for) IS the data the thief reads to plan around them.
+
 ## Open Questions
 
 - How deep should knowledge chaining go before bottoming out at explore?
@@ -573,3 +697,4 @@ That's the ceiling. Deeper is infinite regress, not intelligence.
 - Should `outcomes` on composite plans be declared or computed from sub-plans?
 - How do agents share knowledge? (telling, teaching, written records)
 - How should agent intelligence tier (Tier 0/1/2) be determined? Skill-based? Trait?
+- Should guard training (which plan templates they know) be part of the role or a separate knowledge source?

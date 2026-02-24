@@ -1,3 +1,8 @@
+# ── Base Guard ───────────────────────────────────────────────────
+# Generic guard: reacts to witnessed events and threat levels.
+# Variants inherit these behaviors and add active watching for
+# specific threat patterns relevant to their post.
+
 role guard [military] {
     active_when { assigned_shift }
 
@@ -20,6 +25,128 @@ role guard [military] {
     report:  when witnessed(crime),
              do Influence.Direct { target = $authority, info = $crime },
              priority = 35
+}
+
+# ── Vault Guard ──────────────────────────────────────────────────
+# Post: treasury, warehouse, vault room.
+# Watches for heist and burglary patterns. Trained to notice
+# casing (repeated visits), tool acquisition, crew gathering.
+
+role vault_guard : guard [military, security] {
+    active_when { assigned_shift AND co_located(self, $post) }
+
+    # Active watching: scan for heist/burglary step matches
+    scan_area:     when NOT region.threat_detected,
+                   do Sense.Indirect { target = nearby(self, 30) },
+                   priority = 10
+
+    # Suspicion: 1+ steps matching heist pattern → focus on subject
+    watch_suspect: when observed_steps(self, $subject, criminal.heist) >= 1
+                       OR observed_steps(self, $subject, criminal.burglary) >= 1,
+                   do Sense.Indirect { target = $subject },
+                   priority = 25
+
+    # Escalation: 2+ steps → alert authority before confronting
+    alert_threat:  when observed_steps(self, $subject, criminal.heist) >= 2
+                       OR observed_steps(self, $subject, criminal.burglary) >= 2,
+                   do Influence.Direct { target = $authority, info = suspected_theft },
+                   priority = 45
+
+    # Challenge: approach and question suspicious person
+    challenge:     when observed_steps(self, $subject, criminal.heist) >= 1
+                       AND visible(self, $subject),
+                   do Influence.Direct { target = $subject, intent = identify },
+                   priority = 30
+}
+
+# ── Gate Guard ───────────────────────────────────────────────────
+# Post: city gate, checkpoint, bridge crossing.
+# Watches for smuggling, unauthorized entry, hostile approach.
+
+role gate_guard : guard [military, security] {
+    active_when { assigned_shift AND co_located(self, $gate) }
+
+    # Check everyone passing through
+    inspect:       when $traveler.entering($gate),
+                   do Sense.Direct { target = $traveler },
+                   priority = 20
+
+    # Watch for smuggling patterns: concealed goods, evasion, false papers
+    watch_smuggle: when observed_steps(self, $subject, criminal.smuggling) >= 1,
+                   do Sense.Direct { target = $subject.cargo },
+                   priority = 30
+
+    # Hostile approach: armed group moving toward gate
+    warn_approach: when count(approaching($gate, hostile), distance < 200) >= 3,
+                   do Influence.Direct { target = $garrison, info = hostile_approach },
+                   priority = 50
+
+    # Deny entry to known criminals or hostile faction
+    deny_entry:    when $traveler.entering($gate)
+                       AND (edge(self.faction, $traveler.faction, disposition) < -0.5
+                            OR self.knows($traveler committed crime)),
+                   do Influence.Direct { target = $traveler, intent = turn_away },
+                   priority = 35
+}
+
+# ── Market Guard ─────────────────────────────────────────────────
+# Post: marketplace, bazaar, trade district.
+# Watches for pickpocketing, shoplifting, confidence schemes.
+
+role market_guard : guard [military, economic] {
+    active_when { assigned_shift AND co_located(self, $market) }
+
+    # Crowd scanning: watch for furtive movement patterns
+    scan_crowd:    when count(nearby(self, 20)) > 5,
+                   do Sense.Indirect { target = nearby(self, 20) },
+                   priority = 10
+
+    # Watch for theft: someone lingering near stalls, quick hands
+    watch_theft:   when observed_steps(self, $subject, criminal.pickpocket) >= 1
+                       OR observed_steps(self, $subject, criminal.shoplifting) >= 1,
+                   do Sense.Indirect { target = $subject },
+                   priority = 25
+
+    # Watch for confidence schemes: unusual prolonged engagement with mark
+    watch_con:     when observed_steps(self, $subject, criminal.confidence_scheme) >= 2,
+                   do Sense.Indirect { target = $subject },
+                   priority = 20
+
+    # Intervene: confront suspect before theft completes
+    intervene:     when observed_steps(self, $subject, criminal.pickpocket) >= 2
+                       AND visible(self, $subject),
+                   do Influence.Direct { target = $subject, intent = halt },
+                   priority = 40
+}
+
+# ── Caravan Guard ────────────────────────────────────────────────
+# Post: trade route escort, camp perimeter.
+# Watches for ambush, banditry, animal threats.
+
+role caravan_guard : guard [military, economic] {
+    active_when { assigned_shift }
+
+    # Route scanning: watch flanks and chokepoints
+    scan_route:    when NOT region.threat_detected,
+                   do Sense.Indirect { target = $route.flanks },
+                   priority = 10
+
+    # Ambush indicators: movement in treeline, blocked road, unusual quiet
+    watch_ambush:  when observed_steps(self, $group, military.ambush) >= 1
+                       OR terrain.chokepoint AND visible(self, $obstruction),
+                   do Sense.Indirect { target = $group },
+                   priority = 30
+
+    # Alert caravan: threat confirmed
+    warn_caravan:  when observed_steps(self, $group, military.ambush) >= 2
+                       OR region.threat_level > 40,
+                   do Influence.Direct { target = $caravan_master, info = ambush_risk },
+                   priority = 45
+
+    # Defensive formation: position between threat and cargo
+    shield_cargo:  when region.threat_level > 50,
+                   do Defense.Direct { target = $cargo },
+                   priority = 50
 }
 
 _provenance {

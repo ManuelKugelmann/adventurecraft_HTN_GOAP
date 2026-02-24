@@ -252,6 +252,9 @@ docs/            spec, summary, source catalog
 - Counter conditions can use `observed_steps(observer, subject, plan_id)` for sequential
   detection — matching accumulated action observations against a plan template, not just
   static observables. Prematched plan clusters avoid checking every plan in the library.
+- `observed_steps` is a knowledge query, not a special tracker: it counts how many actions
+  the observer has *perceived* (via `detection_risk`) that match steps in a known plan template.
+  Observer must know the plan template exists (training/experience) to match against it.
 - Counters are NOT the only way adversaries respond. They cover archetypal patterns.
   Agents with deeper knowledge can predict novel responses beyond the catalog.
 - Three tiers: Tier 0 (counter lookup, O(1)), Tier 1 (role-based prediction, depth 1),
@@ -260,14 +263,28 @@ docs/            spec, summary, source catalog
   then deliberately subvert it. The backreference enables strategic reasoning.
 - Counter conditions ONLY reference observable state (pos, weight, faction, garrison,
   walls, equipped, visible actions, terrain). NEVER: drives, plans, knowledge, mood, skills.
-- `observed_steps` is perception-gated: observer must have actually detected each action
-  (resolved via `detection_risk` at the time it happened).
 - Adversary behavioral responses (guard raises alarm, authority investigates) are NOT
   world rules. They are role-driven decisions. The planner predicts them from knowledge
   of the adversary's role and drives.
 - Evidence is just items with Physical + Decayable traits. No special forensics system.
 - Authorities/laws/mob = implicit contracts. A warrant is Influence.Structured.
 - Inception depth limit: max 2 levels. No infinite regress.
+
+### Guard variants and role-driven detection
+
+- Guard roles are specialized by post. Each variant inherits base guard behaviors
+  (patrol, alert, defend, arrest, report) and adds active watching for specific
+  plan templates relevant to their assignment.
+- `vault_guard` watches for `criminal.heist`, `criminal.burglary`.
+  `gate_guard` watches for `criminal.smuggling`, unauthorized entry.
+  `market_guard` watches for `criminal.pickpocket`, `criminal.shoplifting`.
+  `caravan_guard` watches for `military.ambush`, `criminal.banditry`.
+- The plan template ID in the guard's role behavior is both what they're trained to
+  recognize AND the plan whose counter block fires if the threshold is met.
+- Escalation ladder: `observed_steps = 0` → routine patrol; `= 1` → focus Sense on
+  subject; `>= 2` → alert authority / challenge; `>= 3` → confront / arrest.
+- A guard who doesn't know a plan template exists can't match against it.
+  A farmer witnessing the same heist steps as a vault guard won't recognize the pattern.
 
 ### World rules
 
