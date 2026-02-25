@@ -270,32 +270,44 @@ docs/            spec, summary, source catalog
 - Authorities/laws/mob = implicit contracts. A warrant is Influence.Structured.
 - Inception depth limit: max 2 levels. No infinite regress.
 
-### Knowledge model
+### Worldmodel
 
-- Agent knowledge = **filtered view of sim history**. One ground truth log, many views.
-  No duplication. `self.knows(fact)` queries sim history with the agent's perception
-  filter applied (co_location + detection_risk + alertness + time_decay).
+- Each agent has a **worldmodel** = filtered ground truth + stored overrides.
+  No duplication of ground truth. Only overrides are stored.
+- **Base layer** (live query, no storage): complete world state + sim history,
+  filtered by the agent's senses, alertness, memory, co-location, detection_risk,
+  and time decay. `self.knows(fact)` queries this filtered view.
+- **Override layer** (stored): second-hand information (someone told me),
+  deductions (suspect plan conclusions), corrections to stale perception.
+  Overrides take priority over the filtered base when both exist.
 - `performed($subject, action_type, params)` queries sim history for observed actions.
   The action exists in ground truth; `self.knows(performed(...))` returns true only if
   the agent's perception filter passes for that event.
-- **Agent models mirror agent structure.** Every agent maintains internal models of
-  other agents (nodes). These models have the same structure as the agent itself:
-  active plans, roles, traits. When a guard suspects a thief, the guard's model of
-  the thief gets a plan populated in its active plan slot — the guard's best
-  reconstruction of what the thief is doing (e.g. `criminal.heist`, generic method).
-  The thief has the real plan (ground truth). The guard has a truncated/wrong/generic
-  version (estimate). Mismatch = wrong prediction = guard responds inappropriately.
-  This IS the ESTIMATE/SIMULATE split applied to agent models.
+- **Override storage strategy — reference, don't copy.** If belief matches GT,
+  store a reference (pointer + confidence meta). If belief diverges (lied to,
+  wrong deduction, outdated), store a divergent value with accuracy meta.
+- **Node models are overrides.** `self.worldmodel($node)` accesses the agent's
+  override model of another node. These models mirror node structure: active plans,
+  roles, traits. When a guard's suspect plan concludes, it writes an override:
+  `self.worldmodel($subject).active_plan = criminal.heist` — the guard's best
+  reconstruction. The thief has the real plan (ground truth). The guard has a
+  truncated/wrong/generic version (override). Mismatch = wrong prediction.
+  This IS the ESTIMATE/SIMULATE split.
+- Expression syntax: `self.knows(X)` for boolean queries, `self.worldmodel($node)`
+  for structured access. Both query the same worldmodel.
 - `suspected($subject, plan_id)` is a knowledge fact created when a suspect plan
   reports to authority. Authorities receiving this may activate investigation behaviors.
 
 ### Suspect plans and plan recognition
 
-- Plan detection uses **suspect plans** (`suspect.*`). When an agent suspects criminal
-  or hostile activity, they execute a suspect plan. The active plan IS the suspicion.
+- Plan detection uses **suspect plans** (`suspect.*`). The active plan IS the suspicion.
   No separate belief flags — running `suspect.heist` = actively investigating.
+- Alertness/defensiveness regularly triggers the planner to consider suspect plans
+  against various threats each tick. Guards don't wait for specific suspicious actions —
+  their alertness drive proactively evaluates suspect plan methods against recent
+  perceptions in the worldmodel base layer. Higher alertness = more budget for suspicion.
 - Suspect plans are regular plans with `needs` that check sim history (filtered) and
-  `outcomes` that report suspicion: `$authority.knows(suspected($subject, heist))`.
+  `outcomes` that write worldmodel overrides: `self.worldmodel($subject).active_plan = ...`
 - The active suspect plan is a **virtual item** on the executing agent — observable.
   A thief can see the guard has shifted from routine patrol to focused investigation.
   When the plan completes or dismisses, suspicion lifts naturally.

@@ -4,12 +4,12 @@
 # inside job, smash and grab, security probing.
 #
 # The suspect plan's ONLY job: match observed action patterns against
-# known heist methods, then add the best-matching reconstructed plan
-# to the guard's model of the subject. The subject's node in the
-# guard's knowledge now has criminal.heist in its active plan slot.
+# known heist methods, then write the best-matching reconstructed plan
+# as a worldmodel override. self.worldmodel($subject).active_plan gets
+# criminal.heist -- the guard's best reconstruction.
 #
 # Escalation (alert, pursue, arrest) comes from the guard's existing
-# role behaviors reacting to the model update — not from this plan.
+# role behaviors reacting to the worldmodel override -- not from this plan.
 
 plan suspect.heist [detection, criminal, security] {
 
@@ -28,7 +28,7 @@ plan suspect.heist [detection, criminal, security] {
         }
         assess: do Sense.Structured { target = $subject }
         outcomes {
-            self.model($subject).active_plan = criminal.heist.classic
+            self.worldmodel($subject).active_plan = criminal.heist.classic
             time += 10
         }
     }
@@ -43,7 +43,7 @@ plan suspect.heist [detection, criminal, security] {
         }
         assess: do Sense.Structured { target = $subject }
         outcomes {
-            self.model($subject).active_plan = criminal.heist.infiltration
+            self.worldmodel($subject).active_plan = criminal.heist.infiltration
             time += 8
         }
     }
@@ -58,8 +58,8 @@ plan suspect.heist [detection, criminal, security] {
         }
         assess: do Sense.Structured { target = $insider }
         outcomes {
-            self.model($unknown).active_plan = criminal.heist.inside_job
-            self.model($insider).active_plan = criminal.heist.inside_job
+            self.worldmodel($unknown).active_plan = criminal.heist.inside_job
+            self.worldmodel($insider).active_plan = criminal.heist.inside_job
             time += 15
         }
     }
@@ -73,7 +73,7 @@ plan suspect.heist [detection, criminal, security] {
         }
         assess: do Sense.Structured { target = $group }
         outcomes {
-            self.model($group).active_plan = criminal.heist.smash_and_grab
+            self.worldmodel($group).active_plan = criminal.heist.smash_and_grab
             time += 2
         }
     }
@@ -88,7 +88,7 @@ plan suspect.heist [detection, criminal, security] {
         }
         assess: do Sense.Structured { target = $subject }
         outcomes {
-            self.model($subject).active_plan = criminal.heist
+            self.worldmodel($subject).active_plan = criminal.heist
             time += 5
         }
     }

@@ -1,11 +1,11 @@
 # ── Suspect Ambush (Route-Specialized) ───────────────────────────
 # Specialized suspect plan for caravan guards and route patrols.
 # Matches observed terrain cues and movement patterns against known
-# ambush methods, then adds reconstructed plan to agent's model
-# of the suspected group/individual.
+# ambush methods, then writes reconstructed plan as a worldmodel
+# override for the suspected group/individual.
 #
 # Escalation (warn caravan, form up, defend) comes from the
-# caravan_guard role reacting to the model update.
+# caravan_guard role reacting to the worldmodel override.
 
 plan suspect.ambush [detection, military] {
 
@@ -24,7 +24,7 @@ plan suspect.ambush [detection, military] {
         }
         assess: do Sense.Structured { target = $group }
         outcomes {
-            self.model($group).active_plan = military.ambush
+            self.worldmodel($group).active_plan = military.ambush
             time += 5
         }
     }
@@ -39,7 +39,7 @@ plan suspect.ambush [detection, military] {
         }
         assess: do Sense.Structured { target = $scout }
         outcomes {
-            self.model($scout).active_plan = military.ambush
+            self.worldmodel($scout).active_plan = military.ambush
             time += 3
         }
     }
@@ -72,7 +72,7 @@ plan suspect.ambush [detection, military] {
         }
         assess: do Sense.Indirect { target = nearby($obstruction, 50) }
         outcomes {
-            self.model($unknown).active_plan = military.ambush
+            self.worldmodel($unknown).active_plan = military.ambush
             time += 3
         }
     }

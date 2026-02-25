@@ -1,20 +1,20 @@
 # ── Suspect Plans (Base) ─────────────────────────────────────────
 # When an agent suspects criminal or hostile activity, they execute
 # a suspect plan. The suspect plan's ONLY job: match observed action
-# patterns, then add the best-matching reconstructed plan to the
-# agent's model of the subject. The subject's node in the agent's
-# knowledge now has a criminal/hostile plan in its active plan slot.
+# patterns, then write the best-matching reconstructed plan as a
+# worldmodel override. self.worldmodel($subject).active_plan gets
+# set to the matched criminal/hostile plan.
 #
 # Escalation (alert, report, pursue, arrest) comes from the agent's
-# existing role behaviors reacting to the model update — not from
-# the suspect plan itself.
+# existing role behaviors reacting to the worldmodel override -- not
+# from the suspect plan itself.
 #
 # Agent knowledge = filtered view of sim history.
 # self.knows(performed(...)) queries sim history filtered by what
 # this agent actually perceived. No duplication.
 #
 # Dismissal: if no method's needs are satisfied, the plan can't run
-# and the subject's model stays clean. No false suspicion.
+# and the subject's worldmodel entry stays clean. No false suspicion.
 
 plan suspect.theft [detection, criminal] {
 
@@ -31,7 +31,7 @@ plan suspect.theft [detection, criminal] {
         }
         assess: do Sense.Structured { target = $subject }
         outcomes {
-            self.model($subject).active_plan = criminal.heist
+            self.worldmodel($subject).active_plan = criminal.heist
             time += 5
         }
     }
@@ -46,7 +46,7 @@ plan suspect.theft [detection, criminal] {
         }
         assess: do Sense.Structured { target = $subject }
         outcomes {
-            self.model($subject).active_plan = criminal.burglary
+            self.worldmodel($subject).active_plan = criminal.burglary
             time += 3
         }
     }
@@ -60,7 +60,7 @@ plan suspect.theft [detection, criminal] {
         }
         assess: do Sense.Structured { target = $subject }
         outcomes {
-            self.model($subject).active_plan = criminal.pickpocket
+            self.worldmodel($subject).active_plan = criminal.pickpocket
             time += 2
         }
     }
@@ -74,7 +74,7 @@ plan suspect.theft [detection, criminal] {
         }
         assess: do Sense.Structured { target = $subject }
         outcomes {
-            self.model($subject).active_plan = criminal.confidence_scheme
+            self.worldmodel($subject).active_plan = criminal.confidence_scheme
             time += 10
         }
     }
@@ -95,7 +95,7 @@ plan suspect.smuggling [detection, criminal] {
         }
         assess: do Sense.Structured { target = $subject }
         outcomes {
-            self.model($subject).active_plan = criminal.smuggling
+            self.worldmodel($subject).active_plan = criminal.smuggling
             time += 5
         }
     }
@@ -108,7 +108,7 @@ plan suspect.smuggling [detection, criminal] {
         }
         assess: do Sense.Structured { target = $subject }
         outcomes {
-            self.model($subject).active_plan = criminal.smuggling
+            self.worldmodel($subject).active_plan = criminal.smuggling
             time += 10
         }
     }
@@ -129,7 +129,7 @@ plan suspect.hostile_approach [detection, military] {
         }
         assess: do Sense.Structured { target = $group }
         outcomes {
-            self.model($group).active_plan = military.ambush
+            self.worldmodel($group).active_plan = military.ambush
             time += 3
         }
     }

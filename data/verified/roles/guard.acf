@@ -2,13 +2,13 @@
 # Generic guard: reacts to witnessed events and threat levels.
 # Variants inherit these behaviors and add:
 #   1. Observation (Sense actions that feed sim history perception)
-#   2. Suspicion (trigger suspect.* plans — updates model of subject)
-#   3. Escalation (role behaviors react to model updates + witnessed crimes)
+#   2. Suspicion (trigger suspect.* plans -- write worldmodel overrides)
+#   3. Escalation (role behaviors react to worldmodel overrides + witnessed crimes)
 #
-# Knowledge = filtered view of sim history. Guards don't store
-# separate facts — they query what they've perceived.
+# Worldmodel = filtered ground truth + stored overrides. Guards don't
+# store GT duplicates -- overrides only for deductions and reports.
 #
-# Suspect plans ONLY update self.model($subject).active_plan.
+# Suspect plans ONLY write self.worldmodel($subject).active_plan.
 # Escalation comes from the role behaviors below reacting to that.
 
 role guard [military] {
@@ -26,17 +26,17 @@ role guard [military] {
              do Defense.Direct { target = $region },
              priority = 50
 
-    # Arrest: witnessed crime OR model says subject has active criminal plan
-    arrest:  when (witnessed(crime) OR self.model($subject).active_plan matches criminal.*)
+    # Arrest: witnessed crime OR worldmodel says subject has active criminal plan
+    arrest:  when (witnessed(crime) OR self.worldmodel($subject).active_plan matches criminal.*)
                  AND self.skills.melee > $subject.skills.active_defense,
              do Attack.Indirect { target = $subject, intensity = 0.4 },
              priority = 40
 
     # Report: witnessed crime OR suspect plan concluded
     report:  when witnessed(crime)
-                 OR self.model($subject).active_plan matches criminal.*
-                 OR self.model($subject).active_plan matches military.*,
-             do Influence.Direct { target = $authority, info = self.model($subject).active_plan },
+                 OR self.worldmodel($subject).active_plan matches criminal.*
+                 OR self.worldmodel($subject).active_plan matches military.*,
+             do Influence.Direct { target = $authority, info = self.worldmodel($subject).active_plan },
              priority = 35
 }
 
@@ -103,7 +103,7 @@ role gate_guard : guard [military, security] {
     deny_entry:      when $traveler.entering($gate)
                          AND (edge(self.faction, $traveler.faction, disposition) < -0.5
                               OR self.knows($traveler committed crime)
-                              OR self.model($traveler).active_plan matches criminal.*),
+                              OR self.worldmodel($traveler).active_plan matches criminal.*),
                      do Influence.Direct { target = $traveler, intent = turn_away },
                      priority = 35
 }
@@ -153,7 +153,7 @@ role caravan_guard : guard [military, economic] {
     # Defensive formation: position between threat and cargo
     # Triggers on high threat level OR when suspect plan identified an ambush
     shield_cargo:    when region.threat_level > 50
-                         OR self.model($group).active_plan matches military.*,
+                         OR self.worldmodel($group).active_plan matches military.*,
                      do Defense.Direct { target = $cargo },
                      priority = 50
 }

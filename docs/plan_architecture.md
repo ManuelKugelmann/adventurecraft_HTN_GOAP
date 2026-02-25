@@ -257,7 +257,7 @@ Cataloged in `schema/utility_functions.acf`. Five categories:
 | Category | Purpose | Example |
 |----------|---------|---------|
 | ENGINE | World-truth, native code | `distance()`, `visible()`, `reachable()` |
-| KNOWLEDGE | Agent belief state | `self.knows()` |
+| KNOWLEDGE | Worldmodel queries (base + overrides) | `self.knows()`, `self.worldmodel()` |
 | DERIVED | Trait queries + math | `accessible()`, `hostile()`, `alive()` |
 | SUGAR | Shorthand for `.has()` | `portable()`, `locked()`, `burning()` |
 | PLAN | Sub-plan feasibility | `can_reach()`, `can_acquire()` |
@@ -291,11 +291,11 @@ The guard raises the alarm because their role says to. The authority
 investigates because their `lawful` drive is violated. The mob attacks
 because their `belonging` contract was broken.
 
-The planner estimates behavioral links by consulting its **knowledge** of
+The planner estimates behavioral links by consulting its **worldmodel** of
 the adversary (role, drives, capabilities) and running a shallow plan
 simulation: "given this trigger, what would they do?"
 
-### Adversary modeling from knowledge
+### Adversary modeling from worldmodel
 
 The planner doesn't have perfect information. It models adversary response
 from what it *knows* about the adversary:
@@ -373,7 +373,7 @@ alert behavior doesn't fire.
 
 Plan outcomes express only the resolution links. Behavioral links are
 implicit — the planner evaluates them at runtime by consulting its
-knowledge of the adversary's role:
+worldmodel of the adversary's role:
 
 ```acf
 # Resolution links only. Planner fills in behavioral links via role lookup.
@@ -493,7 +493,7 @@ plan suspect.heist [detection, criminal, security] {
         }
         assess: do Sense.Structured { target = $subject }
         outcomes {
-            self.model($subject).active_plan = criminal.heist.infiltration
+            self.worldmodel($subject).active_plan = criminal.heist.infiltration
             time += 8
         }
     }
@@ -503,7 +503,7 @@ plan suspect.heist [detection, criminal, security] {
 Counter blocks fire on observable world state (no reasoning needed).
 Suspect plans fire on accumulated knowledge (requires planning budget).
 Both produce responses — counters via cached lookup, suspect plans via
-model update → role-driven escalation.
+worldmodel override → role-driven escalation.
 
 ### Adversary prediction tiers
 
@@ -569,10 +569,17 @@ at depth 2 thinks: "they expect me to go at night (their counter), so
 I'll go during the day. They might adapt, but I can't predict further."
 That's the ceiling. Deeper is infinite regress, not intelligence.
 
-## Knowledge: Filtered View of Sim History
+## Worldmodel: Filtered Ground Truth + Stored Overrides
 
-Agent knowledge is NOT a separate store. It is a **filtered view** of the
-simulation's ground truth history. One history, many views. No duplication.
+Each agent has a **worldmodel** — their subjective view of the world.
+Two layers: a live-filtered base and a thin stored override layer.
+No duplication of ground truth. Only overrides are stored.
+
+### Base layer (live query, no storage)
+
+Complete world state + sim history, filtered by the agent's perception.
+Filter params are generic: co-location, alertness, detection_risk,
+line of sight, time decay. The engine evaluates the filter on demand.
 
 ```
 sim.history = [
@@ -582,7 +589,7 @@ sim.history = [
     ...
 ]
 
-guard.knowledge = sim.history.filter(
+guard.worldmodel.base = sim.history.filter(
     co_located(guard, event.location, at: event.tick)
     AND detection_risk_passed(guard, event.actor, at: event.tick)
     AND guard.alert(at: event.tick)
@@ -597,17 +604,58 @@ bought lockpicks at tick 105. The guard was co-located and alert and
 detection_risk passed → the guard knows. A different guard was asleep
 at tick 105 → they don't know. Same history, different filters.
 
+### Override layer (stored, thin)
+
+Overrides capture what the agent believes that diverges from or extends
+the filtered base: second-hand information, deductions, suspect plan
+conclusions, things someone told them.
+
+**Storage strategy — reference, don't copy:**
+- If the agent's belief matches ground truth, store a **reference** to
+  the ground truth entry (pointer + accuracy/confidence meta). No copy.
+- If the agent's belief diverges (lied to, wrong deduction, outdated),
+  store a **divergent value** with the same accuracy meta.
+- Overrides take priority over the filtered base when both exist.
+
+```
+guard.worldmodel.overrides = [
+    # Reference to GT — guard was told vault has 3 locks (correct)
+    { ref: gt.vault.locks, confidence: 0.8, source: briefing, tick: 50 },
+
+    # Divergent — informant lied about guard rotation schedule
+    { key: schedule_of(vault_guard), value: "midnight shift change",
+      confidence: 0.6, source: informant, tick: 90 },
+
+    # Deduction — suspect plan conclusion (worldmodel update)
+    { key: worldmodel(thief).active_plan, value: criminal.heist.infiltration,
+      confidence: 0.7, source: suspect.heist, tick: 210 },
+]
+```
+
+The override layer is very thin. Most perception is a live query.
+Only explicitly acquired, told, or deduced facts need storage.
+
+### Query syntax
+
+- `self.knows(X)` — boolean query into worldmodel (checks base + overrides)
+- `self.worldmodel($node)` — structured access to the agent's model of
+  another node (overrides layer, mirrors node structure)
+- Both query the same worldmodel. `self.worldmodel($node).active_plan`
+  is an override — the agent's best reconstruction of that node's plan.
+
 ### Consequences
 
-- **No duplication**: One ground truth log. Each agent's "knowledge"
-  is a view, not a copy.
+- **No duplication**: One ground truth log. The base layer is a live
+  filter, not a copy. Overrides reference GT when beliefs are correct.
 - **Automatic consistency**: Agents can't "know" things they couldn't
-  have perceived. The filter enforces this.
-- **Natural staleness**: Old events decay. The filter includes time.
-  Knowledge gained last month contributes less than knowledge from today.
-- **Wrong knowledge = wrong plans**: The agent perceived the action,
-  but the world may have changed since. Plan failure from stale
-  knowledge is correct behavior.
+  have perceived. The filter enforces this for the base layer.
+- **Natural staleness**: Old events decay via the time filter.
+  Override confidence can also decay over time.
+- **Wrong knowledge = wrong plans**: Stale base or divergent overrides
+  cause plan failure by design. An agent lied to has low confidence
+  overrides that may lead to wrong plans — correct behavior.
+- **Accuracy meta**: Each override carries confidence, source, and
+  tick. The planner can weight uncertain overrides lower.
 
 ## Suspect Plans: Suspicion as Active Execution
 
@@ -616,16 +664,16 @@ When an agent suspects criminal or hostile activity, they execute a
 flags, no detection state machine. An active `suspect.heist` plan on
 a guard = the guard is actively investigating a suspected heist.
 
-### Suspicion populates the agent's model of the subject
+### Suspicion populates the agent's worldmodel
 
-Every agent maintains internal models of other agents. These models
-mirror agent structure: active plans, roles, traits. When the guard
-concludes `suspect.heist`, the guard's model of the thief gets
-`criminal.heist` placed in the thief's active plan slot — the guard's
-best reconstruction of what the thief is doing.
+Every agent's worldmodel includes override entries for other agents.
+These entries mirror agent structure: active plans, roles, traits.
+When the guard concludes `suspect.heist`, the guard's worldmodel
+entry for the thief gets `criminal.heist` placed in its active plan
+slot — the guard's best reconstruction of what the thief is doing.
 
 ```
-Thief (ground truth):           Guard's model of thief (estimate):
+Thief (ground truth):           Guard's worldmodel(thief) (override):
   active_plan: criminal.heist     active_plan: criminal.heist
   method: infiltration             method: ??? (generic/unknown)
   step: crack_vault                step: ??? (guard hasn't seen this yet)
@@ -633,16 +681,16 @@ Thief (ground truth):           Guard's model of thief (estimate):
 ```
 
 The thief has the real plan. The guard has a truncated/wrong/generic
-version — populated from what they've observed plus the suspect plan's
-pattern matching. This IS the ESTIMATE/SIMULATE split applied to
-agent models. Mismatch = wrong prediction = guard responds to a
-classic crew heist when it's actually a solo infiltration.
+override — populated from what they've observed plus the suspect plan's
+pattern matching. This IS the ESTIMATE/SIMULATE split. Mismatch =
+wrong prediction = guard responds to a classic crew heist when it's
+actually a solo infiltration.
 
 Running `suspect.heist` is also observable. The guard's behavior
 changes: they stop routine patrol, focus on a subject, question people.
 A thief can perceive this shift. When the suspect plan completes
 (confirmed → escalate) or dismisses (no method's needs met),
-the model entry clears. No flags to reset.
+the override entry clears. No flags to reset.
 
 ### How it works
 
@@ -652,18 +700,18 @@ the model entry clears. No flags to reset.
 3. If perceived: guard's filtered view now includes the action
 4. Guard role triggers suspect plan: "do suspect.heist { subject = $subject }"
 5. Suspect plan needs check guard's filtered history view
-6. If match: suspect plan adds reconstructed plan to guard's model of subject
-   → self.model($subject).active_plan = criminal.heist.infiltration
+6. If match: suspect plan writes override to guard's worldmodel for subject
+   → self.worldmodel($subject).active_plan = criminal.heist.infiltration
 7. Guard's existing role behaviors react to the model update:
-   → "my model of a nearby agent has an active criminal plan"
+   → "my worldmodel shows a nearby agent has an active criminal plan"
    → alert, report, pursue, arrest (all role behaviors, not suspect plan steps)
 ```
 
-### Suspect plans only update the model
+### Suspect plans only write worldmodel overrides
 
-A suspect plan's ONLY job: match observed action patterns, then add
-the best-matching reconstructed plan to the agent's model of the
-subject. Escalation is the role's concern, not the suspect plan's:
+A suspect plan's ONLY job: match observed action patterns, then write
+the best-matching reconstructed plan as an override in the agent's
+worldmodel. Escalation is the role's concern, not the suspect plan's:
 
 ```acf
 plan suspect.heist [detection, criminal, security] {
@@ -674,7 +722,7 @@ plan suspect.heist [detection, criminal, security] {
         }
         assess: do Sense.Structured { target = $subject }
         outcomes {
-            self.model($subject).active_plan = criminal.heist.infiltration
+            self.worldmodel($subject).active_plan = criminal.heist.infiltration
             time += 8
         }
     }
@@ -686,10 +734,25 @@ The guard doesn't magically detect a heist. They:
 2. **Perceived** the same person acquiring lockpicks (another detected action)
 3. Both events are in sim history; guard's filter includes both
 4. Guard role triggers `suspect.heist` → plan's needs check history
-5. Needs met → plan adds `criminal.heist.infiltration` to guard's
-   model of the subject (truncated — guard doesn't know exact step)
-6. Guard role sees `model($subject).active_plan == criminal.*` →
+5. Needs met → plan writes `criminal.heist.infiltration` override
+   in guard's worldmodel for the subject (truncated — guard doesn't know exact step)
+6. Guard role sees `worldmodel($subject).active_plan == criminal.*` →
    existing alert/report/arrest behaviors fire
+
+### Alertness drives proactive suspicion
+
+Suspect plans aren't only triggered by specific witnessed actions.
+An agent's alertness/defensiveness regularly triggers the planner to
+consider suspect plans against various threats as part of each tick's
+planning cycle. A guard on alert doesn't wait to see something
+suspicious — their alertness drive proactively runs suspect plans,
+scanning their worldmodel's base layer (recent perceptions) for
+patterns. Higher alertness = more planning budget allocated to
+suspicion = more suspect plan methods evaluated per tick.
+
+This means a relaxed guard might only catch obvious patterns
+(smash-and-grab), while a hypervigilant guard evaluates subtle
+patterns (security probing, inside job) on every tick.
 
 ### Planning budget limits suspicion depth
 

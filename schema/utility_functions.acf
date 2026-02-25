@@ -243,31 +243,46 @@ function attribution_risk(investigator, suspect) [RESOLUTION, planned] {
     notes: time decay favors the suspect; old evidence harder to attribute
 }
 
-# ── KNOWLEDGE: filtered view of sim history ──────────────────────
-# Agent knowledge is NOT a separate store. It is a filtered view of
-# the simulation's ground truth history. One history, many views.
+# ── KNOWLEDGE: worldmodel queries ────────────────────────────────
+# Each agent has a worldmodel = filtered ground truth + stored overrides.
 #
-# The filter is the agent's perception: was I co-located? Did I pass
-# detection_risk? Was I alert/awake? Did I have line of sight?
-# No duplication — the engine queries sim history with the agent's
-# perception filter applied.
+# Base layer (live query, no storage): complete world state + sim
+# history, filtered by agent's senses, alertness, memory, co-location,
+# detection_risk, time decay. The engine evaluates the filter on demand.
 #
-# self.knows(fact) = sim.history.filter(self.perception).contains(fact)
+# Override layer (stored, thin): second-hand info (told by others),
+# deductions (suspect plan conclusions), corrections. Overrides
+# reference GT when belief is correct (pointer + confidence meta),
+# store divergent value only when belief is wrong.
 #
-# Stale/wrong knowledge: the filter includes time decay. Old facts
-# may no longer match. Also, the fact was true when perceived but
-# the world may have changed since. Plan failure from stale knowledge
-# is correct behavior (agent was misinformed).
+# self.knows(fact) = worldmodel.base.contains(fact) OR worldmodel.overrides.contains(fact)
+# self.worldmodel($node) = override entry for that node (mirrors node structure)
 #
-# Call syntax: self.knows(fact)
-# Engine signature: knows(agent, fact)
+# Both query the same worldmodel. Overrides take priority over base.
+#
+# Call syntax: self.knows(fact), self.worldmodel($node).field
+# Engine signature: knows(agent, fact), worldmodel(agent, node)
 
 function knows(agent, fact) [KNOWLEDGE, core] {
-    # Query agent's filtered view of sim history for this fact
+    # Query agent's worldmodel for this fact (checks base + overrides)
     returns: bool
-    resolves_to: sim.history.filter(agent.perception_filter).contains(fact)
+    resolves_to: agent.worldmodel.contains(fact)
     notes: the fundamental knowledge check, gates almost everything.
-           perception_filter = co_located + detection_risk + alertness + time_decay
+           base = sim.history.filter(co_located + detection_risk + alertness + time_decay)
+           overrides = stored refs/divergent values with confidence meta
+           overrides take priority over base when both exist
+}
+
+function worldmodel(agent, node) [KNOWLEDGE, core] {
+    # Access agent's override model of another node
+    # Mirrors node structure: active plans, roles, traits
+    # Written by suspect plans, second-hand reports, deductions
+    # Overrides reference GT when correct (pointer + confidence),
+    # store divergent value only when belief is wrong
+    returns: node_model
+    notes: self.worldmodel($node).active_plan is the agent's best
+           reconstruction of what that node is doing.
+           confidence meta on each field tracks source and staleness.
 }
 
 # Knowledge types — structured facts that agents store and query.
@@ -352,7 +367,7 @@ function performed(subject, action_type) [KNOWLEDGE, planned] {
 
 function suspected(subject, plan_id) [KNOWLEDGE, candidate] {
     # Authority has been informed that subject may be executing plan_id.
-    # NOT created by suspect plans (those update self.model() directly).
+    # NOT created by suspect plans (those update self.worldmodel() directly).
     # Created when a guard's role behavior reports to authority via
     # Influence.Direct — the authority's filtered view now includes
     # the report. The authority can then query: self.knows(suspected(...)).
