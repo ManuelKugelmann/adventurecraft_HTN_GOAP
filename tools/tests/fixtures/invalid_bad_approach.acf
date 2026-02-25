@@ -1,0 +1,5 @@
+plan test.bad_approach [test] {
+    method default {
+        step_a: do Move.Careful { target = $destination }
+    }
+}

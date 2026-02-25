@@ -1,0 +1,80 @@
+plan acquire_item [economic, universal] {
+
+    params {
+        source = ObjectRef
+    }
+
+    method pick_up {
+        needs { co_located(self, $source) AND portable($source) AND NOT owns(*, $source) }
+        step: do Transfer.Direct { source = $source.location }
+        outcomes {
+            accessible(self, $source), prob = 0.95
+            time += 1
+        }
+    }
+
+    method buy {
+        needs {
+            self.knows(price_of($source, $market))
+            AND affordable(self, price_of($source, $market))
+            AND accessible(self, $market)
+        }
+        negotiate: do Transfer.Indirect { source = $market, item = $source }
+        outcomes {
+            accessible(self, $source), prob = 0.9
+            self.inventory.currency -= price_of($source, $market)
+            edge(self, $market.owner, familiarity) += 0.02
+            time += 10
+        }
+    }
+
+    method steal {
+        needs { self.knows(location_of($source)) AND NOT visible(self, $source.owner) }
+        approach: do move_to { destination = $source.location }
+        grab:     do Transfer.Direct { source = $source.location }
+        flee:     do move_to { destination = self.location.adjacent }
+        outcomes {
+            accessible(self, $source), prob = 0.7
+            edge(self, $source.owner, disposition) -= 0.5
+            edge(self, law_enforcement, disposition) -= 0.2
+            time += distance(self, $source.location) / self.Movement.Speed + 5
+        }
+    }
+
+    method craft {
+        needs {
+            self.knows(recipe_for($source))
+            AND accessible(self, $materials)
+            AND capable(self, crafting)
+        }
+        gather:    do acquire_access { node = $materials }
+        make:      do Modify.Structured { target = $materials, recipe = $source }
+        outcomes {
+            accessible(self, $source), prob = craft_chance(self, $source)
+            time += 60
+        }
+    }
+
+    method trade {
+        needs {
+            accessible(self, $offer)
+            AND self.knows(location_of($holder))
+            AND NOT hostile($holder, self)
+        }
+        approach:  do move_to { destination = $holder.location }
+        negotiate: do Transfer.Indirect { source = $holder, item = $source, offer = $offer }
+        outcomes {
+            accessible(self, $source), prob = 0.75
+            NOT accessible(self, $offer)
+            edge(self, $holder, familiarity) += 0.05
+            time += distance(self, $holder.location) / self.Movement.Speed + 15
+        }
+    }
+}
+
+_provenance {
+    sources = [{ type = design_pattern, id = item_acquisition, confidence = 0.85 }]
+    model = seed
+    verified = true
+    reviewer = manu
+}

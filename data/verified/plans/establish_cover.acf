@@ -1,0 +1,52 @@
+plan establish_cover [deception, social] {
+
+    params {
+        persona = ObjectRef
+    }
+
+    # Build a false identity for sustained deception.
+    # Referenced by long-con heist method and espionage plans.
+    # Social engineering Phase 2: engagement preparation.
+
+    method forge_documents {
+        needs { capable(self, crafting) AND accessible(self, $materials) }
+        craft_papers: do Modify.Structured { target = $materials, recipe = $persona }
+        practice:     do Sense.Direct { target = $persona }
+        outcomes {
+            accessible(self, $persona), prob = 0.8
+            time += 48
+        }
+    }
+
+    method assume_role {
+        needs { self.knows(properties_of($persona.template)) AND capable(self, deception) }
+        study_mark:   do Sense.Structured { target = $persona.template }
+        rehearse:     do Modify.Direct { target = self.appearance }
+        outcomes {
+            accessible(self, $persona), prob = deception_chance(self, $persona.template)
+            time += 72
+        }
+    }
+
+    method buy_identity {
+        needs { affordable(self, $price) AND self.knows(location_of($forger)) }
+        find_forger:  do move_to { destination = $forger.location }
+        commission:   do Transfer.Indirect { target = $forger, item = $payment }
+        collect:      do acquire_item { source = $persona }
+        outcomes {
+            accessible(self, $persona), prob = 0.85
+            self.inventory.currency -= $price
+            time += 168
+        }
+    }
+}
+
+_provenance {
+    sources = [
+        { type = narrative_pattern, id = social_engineering_cycle, confidence = 0.8 },
+        { type = narrative_pattern, id = cover_identity_archetype, confidence = 0.75 }
+    ]
+    model = seed
+    verified = true
+    reviewer = manu
+}

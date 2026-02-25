@@ -1,0 +1,78 @@
+rule detection [social, L3] {
+
+    # Secrecy resolution: determines if an actor performing an action
+    # is noticed by nearby observers. Runs per-action as a world rule.
+    # Plans declare "visible(self, observers)" as an outcome;
+    # this rule resolves the actual probability.
+
+    spot_by_guard: when observer.role == guard
+                       AND co_located(observer, $actor.location)
+                       AND NOT concealed($actor),
+                   prob = sigmoid(observer.Skills.observation
+                                  - $actor.Skills.stealth
+                                  - $actor.equipment.stealth_bonus
+                                  + $action.noise * 0.5
+                                  - $location.Lighting.concealment * 0.3),
+                   effect: visible($actor, observer)
+
+    spot_by_nearby: when co_located(observer, $actor.location)
+                        AND NOT concealed($actor)
+                        AND observer != $actor,
+                    prob = sigmoid(observer.Skills.observation * 0.5
+                                   - $actor.Skills.stealth
+                                   - $actor.equipment.stealth_bonus
+                                   + $action.noise * 0.3
+                                   - $location.Lighting.concealment * 0.3)
+                                   * 0.5,
+                    effect: visible($actor, observer)
+
+    hear_noise: when distance(observer, $actor) < $action.noise * 10
+                    AND observer.Skills.observation > 5,
+                prob = sigmoid($action.noise * 0.3
+                               - distance(observer, $actor) * 0.1
+                               - $location.ambient_noise * 0.2),
+                effect: observer.alert = true
+
+    # ── Identification (chained from detection) ──────────────────
+    # Detection answers "is someone there?" — identification answers
+    # "who is it?". Separate resolution: an actor can be spotted but
+    # not recognized (hooded figure at night, unknown face in crowd).
+
+    identify_known: when visible($actor, observer)
+                        AND edge(observer, $actor, familiarity) > 0.3,
+                    prob = sigmoid(edge(observer, $actor, familiarity) * 30
+                                   + observer.Skills.observation * 0.5
+                                   - $actor.equipment.disguise_quality
+                                   - distance(observer, $actor) * 0.1),
+                    effect: observer.knows(identity_of($actor))
+
+    identify_disguised: when visible($actor, observer)
+                            AND $actor.has(Disguised),
+                        prob = sigmoid(observer.Skills.observation
+                                       - $actor.Skills.deception
+                                       - $actor.equipment.disguise_quality
+                                       + edge(observer, $actor, familiarity) * 20),
+                        effect: observer.knows(identity_of($actor))
+
+    # ── Evidence (long-term detection) ───────────────────────────
+    # Every physical action may leave traces as ordinary items.
+    # Evidence nodes are items with Physical + Decayable traits.
+    # Subject to normal rules: rain decays them, fire destroys them,
+    # cover_tracks plan Destroys them. No special forensics system.
+    # Investigators find them via track_following (skill check on item).
+
+    evidence_left: when $actor.action.completed
+                       AND $action.physical_contact > 0,
+                   prob = sigmoid($location.surface.track_retention
+                                  - $actor.Skills.stealth * 0.5
+                                  - $actor.equipment.gloves * 0.3
+                                  + $action.physical_contact * 0.5),
+                   effect: Create(item with Physical + Decayable, { location = $location, traces = $actor, time = now })
+}
+
+_provenance {
+    sources = [{ type = design_pattern, id = stealth_detection_system, confidence = 0.8 }]
+    model = seed
+    verified = true
+    reviewer = manu
+}

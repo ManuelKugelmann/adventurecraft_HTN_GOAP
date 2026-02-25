@@ -1,0 +1,68 @@
+plan gain_entry [access, universal] {
+
+    params {
+        target = ObjectRef
+    }
+
+    method unlock {
+        needs {
+            locked($target)
+            AND accessible(self, $key)
+            AND $key.fits($target.Locked)
+        }
+        step: do Modify.Direct { target = $target.Locked, key = $key }
+        outcomes {
+            NOT locked($target), prob = 0.95
+            time += 1
+        }
+    }
+
+    method pick_lock {
+        needs { locked($target) AND accessible(self, $lockpicks) AND capable(self, lockpicking) }
+        step: do Modify.Direct { target = $target.Locked, tools = $lockpicks }
+        outcomes {
+            NOT locked($target), prob = lockpick_chance(self, $target.Locked)
+            $lockpicks.Condition -= 10
+            time += 5
+        }
+    }
+
+    method break_through {
+        needs { $target.has(Physical) AND accessible(self, $tool) AND $tool.has(Weapon) }
+        step: do Attack.Direct { target = $target, weapon = $tool }
+        outcomes {
+            NOT locked($target), prob = 0.9
+            $target.Physical.Integrity -= 50
+            visible(self, nearby(self, 30)), prob = detection_risk(self, nearby(self, 30))
+            time += 3
+        }
+    }
+
+    method sneak_past {
+        needs { NOT locked($target) AND self.Skills.stealth > 20 }
+        wait:  do Sense.Indirect { target = $target }
+        slip:  do Move.Direct { destination = $target }
+        outcomes {
+            co_located(self, $target.interior), prob = 1 - detection_risk(self, nearby($target, 15))
+            time += 15
+        }
+    }
+
+    method get_invited {
+        needs { NOT hostile($gatekeeper, self) AND co_located(self, $gatekeeper) }
+        ask:   do influence_person { target = $gatekeeper, intent = grant_access }
+        enter: do Move.Direct { destination = $target.interior }
+        outcomes {
+            co_located(self, $target.interior), prob = 0.6
+            edge(self, $gatekeeper, familiarity) += 0.05
+            time += 10
+        }
+    }
+}
+
+_provenance {
+    sources = [{ type = design_pattern, id = barrier_passage, confidence = 0.85 }]
+    model = seed
+    verified = true
+    reviewer = manu
+}

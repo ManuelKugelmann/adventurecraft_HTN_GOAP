@@ -93,8 +93,9 @@ def format_matrix(stats: dict) -> str:
     """Format action×approach coverage matrix."""
     lines = []
     lines.append("Action×Approach Coverage:")
-    lines.append(f"{'':15} {'Direct':>8} {'Careful':>8} {'Indirect':>8} {'Total':>8}")
-    lines.append("-" * 50)
+    header = " ".join(f"{ap:>11}" for ap in APPROACHES)
+    lines.append(f"{'':15} {header} {'Total':>8}")
+    lines.append("-" * 62)
 
     for action in ACTIONS:
         counts = []
@@ -102,8 +103,8 @@ def format_matrix(stats: dict) -> str:
             key = f"{action}.{approach}"
             counts.append(stats["action_usage"].get(key, 0))
         total = sum(counts)
-        line = f"{action:15} {counts[0]:8} {counts[1]:8} {counts[2]:8} {total:8}"
-        lines.append(line)
+        cells = " ".join(f"{c:>11}" for c in counts)
+        lines.append(f"{action:15} {cells} {total:>8}")
 
     return "\n".join(lines)
 

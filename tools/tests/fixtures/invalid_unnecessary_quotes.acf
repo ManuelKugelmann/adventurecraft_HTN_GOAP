@@ -1,0 +1,5 @@
+plan test.quotes ["test"] {
+    method default {
+        step_a: do Move.Direct { target = "$destination" }
+    }
+}

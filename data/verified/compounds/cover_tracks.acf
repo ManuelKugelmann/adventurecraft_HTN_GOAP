@@ -6,7 +6,7 @@ plan cover_tracks [deception, reusable] {
     }
 
     destroy: do Modify.Direct { target = $evidence, destroy = true }
-    alibi:   do Influence.Indirect { target = $witness, false = true }
+    alibi:   do Influence.Structured { target = $witness, false = true }
         prob = sigmoid(self.skills.deception - $witness.skills.observation)
     divert:  do plant_false_evidence { target_location = $elsewhere }
 

@@ -1,0 +1,89 @@
+# ── Suspect Ambush (Route-Specialized) ───────────────────────────
+# Specialized suspect plan for caravan guards and route patrols.
+# Matches observed terrain cues and movement patterns against known
+# ambush methods, then writes reconstructed plan as a worldmodel
+# override for the suspected group/individual.
+#
+# Escalation (warn caravan, form up, defend) comes from the
+# caravan_guard role reacting to the worldmodel override.
+
+plan suspect.ambush [detection, military] {
+
+    params {
+        group = GroupRef
+        route = SpatialRef
+    }
+
+    # ── Prepared ambush ─────────────────────────────────────────
+    # Group positioned in concealment near chokepoint + road obstruction
+    method prepared_ambush {
+        needs {
+            self.knows(performed($group, Move, destination = $treeline))
+            AND terrain.type == chokepoint
+            AND self.knows(visible(self, $obstruction) AND $obstruction.blocking($route))
+        }
+        assess: do Sense.Structured { target = $group }
+        outcomes {
+            self.worldmodel($group).active_plan = military.ambush
+            time += 5
+        }
+    }
+
+    # ── Bandit scout ────────────────────────────────────────────
+    # Lone rider shadowing the caravan from a distance
+    method bandit_scout {
+        needs {
+            self.knows(performed($scout, Sense, target = $caravan, repeated = true))
+            AND self.knows(performed($scout, Move, parallel_to = $route))
+            AND NOT edge(self.faction, $scout.faction, disposition) > 0
+        }
+        assess: do Sense.Structured { target = $scout }
+        outcomes {
+            self.worldmodel($scout).active_plan = military.ambush
+            time += 3
+        }
+    }
+
+    # ── Unusual quiet ───────────────────────────────────────────
+    # No wildlife, no travelers — area may be controlled by hostiles
+    # Can't attribute to a specific group — model stays empty but
+    # the guard's own alert state rises (role behavior handles this)
+    method absence_pattern {
+        needs {
+            count(nearby(self, 100), fauna) == 0
+            AND count(nearby(self, 200), traveler) == 0
+            AND terrain.normally_populated
+        }
+        assess: do Sense.Indirect { target = $route.flanks }
+        outcomes {
+            self.alert = true
+            time += 5
+        }
+    }
+
+    # ── Roadblock ───────────────────────────────────────────────
+    # Felled tree, overturned cart — suggests prepared ambush
+    # Attacker unknown, but model $unknown with generic ambush plan
+    method roadblock {
+        needs {
+            visible(self, $obstruction)
+            AND $obstruction.blocking($route)
+            AND NOT $obstruction.natural
+        }
+        assess: do Sense.Indirect { target = nearby($obstruction, 50) }
+        outcomes {
+            self.worldmodel($unknown).active_plan = military.ambush
+            time += 3
+        }
+    }
+}
+
+_provenance {
+    sources = [
+        { type = historical, id = caravan_guard_tactics, confidence = 0.8 },
+        { type = common_sense, id = ambush_recognition, confidence = 0.85 }
+    ]
+    model = seed
+    verified = true
+    reviewer = manu
+}

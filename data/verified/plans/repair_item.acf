@@ -1,0 +1,56 @@
+plan repair_item [economic, maintenance] {
+
+    params {
+        item = ObjectRef
+    }
+
+    # Planner inserts when a tool/weapon/armor condition drops
+    # below usable threshold.
+
+    method self_repair {
+        needs {
+            accessible(self, $item)
+            AND accessible(self, $repair_materials)
+            AND capable(self, crafting)
+        }
+        fix: do Modify.Structured { target = $item, materials = $repair_materials }
+        outcomes {
+            $item.Physical.Condition += 40
+            NOT accessible(self, $repair_materials)
+            time += 30
+        }
+    }
+
+    method field_repair {
+        needs { accessible(self, $item) }
+        patch: do Modify.Direct { target = $item }
+        outcomes {
+            $item.Physical.Condition += 15
+            time += 10
+        }
+    }
+
+    method hire_craftsman {
+        needs {
+            self.knows(location_of($craftsman))
+            AND $craftsman.Skills.crafting > 30
+            AND affordable(self, $craftsman.fee)
+        }
+        travel:    do move_to { destination = $craftsman.location }
+        negotiate: do influence_person { target = $craftsman, intent = repair_service }
+        hand_over: do Transfer.Direct { target = $craftsman, item = $item }
+        collect:   do acquire_item { source = $item }
+        outcomes {
+            $item.Physical.Condition += 60
+            self.inventory.currency -= $craftsman.fee
+            time += distance(self, $craftsman.location) / self.Movement.Speed + 60
+        }
+    }
+}
+
+_provenance {
+    sources = [{ type = common_sense, id = item_maintenance, confidence = 0.9 }]
+    model = seed
+    verified = true
+    reviewer = manu
+}

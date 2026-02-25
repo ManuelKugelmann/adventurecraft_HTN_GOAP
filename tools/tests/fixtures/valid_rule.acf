@@ -1,0 +1,16 @@
+rule temperature_flow [physics, L0] {
+    conduct: when region.temperature > adjacent.temperature,
+             rate = (region.temperature - adjacent.temperature) * 0.05,
+             effect: adjacent.temperature += rate * dt
+
+    radiate: when region.temperature > 100 AND region.fire == 0,
+             rate = region.temperature * 0.01,
+             effect: region.temperature -= rate * dt
+}
+
+_provenance {
+    sources = [{ type = test_fixture, id = temperature, confidence = 1.0 }]
+    model = seed
+    verified = true
+    reviewer = test
+}

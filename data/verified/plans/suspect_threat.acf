@@ -1,0 +1,143 @@
+# ── Suspect Plans (Base) ─────────────────────────────────────────
+# When an agent suspects criminal or hostile activity, they execute
+# a suspect plan. The suspect plan's ONLY job: match observed action
+# patterns, then write the best-matching reconstructed plan as a
+# worldmodel override. self.worldmodel($subject).active_plan gets
+# set to the matched criminal/hostile plan.
+#
+# Escalation (alert, report, pursue, arrest) comes from the agent's
+# existing role behaviors reacting to the worldmodel override -- not
+# from the suspect plan itself.
+#
+# Agent knowledge = filtered view of sim history.
+# self.knows(performed(...)) queries sim history filtered by what
+# this agent actually perceived. No duplication.
+#
+# Dismissal: if no method's needs are satisfied, the plan can't run
+# and the subject's worldmodel entry stays clean. No false suspicion.
+
+plan suspect.theft [detection, criminal] {
+
+    params {
+        subject = PersonRef
+    }
+
+    # ── Heist indicators ────────────────────────────────────────
+    # Casing + tool acquisition = likely heist or burglary
+    method heist_pattern {
+        needs {
+            self.knows(performed($subject, acquire_information, about = layout_of($location)))
+            AND self.knows(performed($subject, acquire_item, type = tools))
+        }
+        assess: do Sense.Structured { target = $subject }
+        outcomes {
+            self.worldmodel($subject).active_plan = criminal.heist
+            time += 5
+        }
+    }
+
+    # ── Burglary indicators ─────────────────────────────────────
+    # Repeated observation of a building + nighttime approach
+    method burglary_pattern {
+        needs {
+            self.knows(performed($subject, Sense, target = $building))
+            AND self.knows(performed($subject, Move, destination = $building))
+            AND time.is_night
+        }
+        assess: do Sense.Structured { target = $subject }
+        outcomes {
+            self.worldmodel($subject).active_plan = criminal.burglary
+            time += 3
+        }
+    }
+
+    # ── Pickpocket indicators ───────────────────────────────────
+    # Close approach to mark + furtive hand movement
+    method pickpocket_pattern {
+        needs {
+            self.knows(performed($subject, Move, target = $mark, distance < 1))
+            AND self.knows(performed($subject, Transfer, source = $mark))
+        }
+        assess: do Sense.Structured { target = $subject }
+        outcomes {
+            self.worldmodel($subject).active_plan = criminal.pickpocket
+            time += 2
+        }
+    }
+
+    # ── Confidence scheme indicators ────────────────────────────
+    # Prolonged engagement with mark + false identity
+    method con_pattern {
+        needs {
+            self.knows(performed($subject, Influence, target = $mark, frequency >= 3))
+            AND self.knows(performed($subject, establish_cover))
+        }
+        assess: do Sense.Structured { target = $subject }
+        outcomes {
+            self.worldmodel($subject).active_plan = criminal.confidence_scheme
+            time += 10
+        }
+    }
+}
+
+plan suspect.smuggling [detection, criminal] {
+
+    params {
+        subject = PersonRef
+    }
+
+    # ── Concealed transfer + checkpoint avoidance ───────────────
+    method evasion_pattern {
+        needs {
+            self.knows(performed($subject, Transfer, concealed = true))
+            OR (self.knows(performed($subject, Move, avoiding = $checkpoint))
+                AND $subject.cargo.weight > 10)
+        }
+        assess: do Sense.Structured { target = $subject }
+        outcomes {
+            self.worldmodel($subject).active_plan = criminal.smuggling
+            time += 5
+        }
+    }
+
+    # ── False papers / forged permits ───────────────────────────
+    method document_pattern {
+        needs {
+            self.knows(performed($subject, Influence, target = self, intent = present_papers))
+            AND self.knows($subject.papers.quality < 0.5)
+        }
+        assess: do Sense.Structured { target = $subject }
+        outcomes {
+            self.worldmodel($subject).active_plan = criminal.smuggling
+            time += 10
+        }
+    }
+}
+
+plan suspect.hostile_approach [detection, military] {
+
+    params {
+        group = GroupRef
+    }
+
+    # ── Armed group spreading out near chokepoint ───────────────
+    method ambush_indicators {
+        needs {
+            self.knows(performed($group, Move, formation = spread))
+            AND terrain.type == chokepoint
+            AND count($group) >= 3
+        }
+        assess: do Sense.Structured { target = $group }
+        outcomes {
+            self.worldmodel($group).active_plan = military.ambush
+            time += 3
+        }
+    }
+}
+
+_provenance {
+    sources = [{ type = design_pattern, id = threat_recognition, confidence = 0.8 }]
+    model = seed
+    verified = true
+    reviewer = manu
+}

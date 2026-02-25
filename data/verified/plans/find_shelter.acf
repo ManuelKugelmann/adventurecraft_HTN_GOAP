@@ -1,0 +1,71 @@
+plan find_shelter [survival, universal] {
+
+    params {
+        location = SpatialRef
+    }
+
+    # Planner inserts when weather threatens or night falls
+    # and agent has no shelter. Chains into rest.
+
+    method go_home {
+        needs { self.knows(location_of($home)) AND owns(self, $home) }
+        travel: do move_to { destination = $home }
+        outcomes {
+            co_located(self, $home), prob = 0.95
+            time += distance(self, $home) / self.Movement.Speed
+        }
+    }
+
+    method rent_room {
+        needs {
+            self.knows(location_of($inn))
+            AND affordable(self, $inn.room_price)
+        }
+        travel:    do move_to { destination = $inn }
+        negotiate: do influence_person { target = $inn.keeper, intent = rent_room }
+        outcomes {
+            co_located(self, $inn.room), prob = 0.9
+            self.inventory.currency -= $inn.room_price
+            time += distance(self, $inn) / self.Movement.Speed + 5
+        }
+    }
+
+    method ask_hospitality {
+        needs { self.knows(location_of($host)) AND NOT hostile($host, self) }
+        travel: do move_to { destination = $host.location }
+        ask:    do influence_person { target = $host, intent = grant_shelter }
+        outcomes {
+            co_located(self, $host.location), prob = 0.5
+            edge(self, $host, familiarity) += 0.05
+            time += distance(self, $host.location) / self.Movement.Speed + 5
+        }
+    }
+
+    method build_camp {
+        needs { NOT submerged(self.location) }
+        find_spot:  do Sense.Direct { target = self.location }
+        build:      do Modify.Direct { target = self.location }
+        outcomes {
+            accessible(self, $camp), prob = 0.85
+            self.Vitals.Stamina -= 20
+            time += 60
+        }
+    }
+
+    method find_cave {
+        needs { self.location.has(Terrain) AND self.location.Terrain.type == mountain }
+        search: do Sense.Direct { target = self.location }
+        enter:  do move_to { destination = $cave }
+        outcomes {
+            co_located(self, $cave), prob = 0.4
+            time += 120
+        }
+    }
+}
+
+_provenance {
+    sources = [{ type = common_sense, id = shelter_seeking, confidence = 0.9 }]
+    model = seed
+    verified = true
+    reviewer = manu
+}

@@ -1,0 +1,8 @@
+plan test.hidden_counter [test] {
+    method default {
+        step_a: do Move.Direct { target = $destination }
+    }
+    counter threat.test {
+        response_a when $enemy.drives.dominance > 50
+    }
+}

@@ -4,34 +4,38 @@ on:
   pull_request:
     paths:
       - 'data/**/*.acf'
+      - 'schema/**'
+      - 'tools/validate.py'
 
 jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          cache: pip
 
       - name: Install dependencies
         run: pip install -r requirements.txt
 
       - name: Validate changed files
         run: |
-          # Get changed .acf files
           CHANGED=$(git diff --name-only ${{ github.event.pull_request.base.sha }} -- '*.acf')
-          
+
           if [ -z "$CHANGED" ]; then
             echo "No .acf files changed."
             exit 0
           fi
-          
+
           echo "Validating changed files:"
           echo "$CHANGED"
           echo ""
-          
+
           python tools/validate.py $CHANGED
 
       - name: Validate all (sanity check)

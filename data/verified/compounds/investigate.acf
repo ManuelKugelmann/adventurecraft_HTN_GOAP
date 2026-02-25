@@ -4,9 +4,9 @@ plan investigate [information, reusable] {
         target = EntityRef
     }
 
-    survey: do Sense.Careful { target = $target }
+    survey: do Sense.Indirect { target = $target }
         prob = sigmoid(self.skills.observation - $target.modifier.stealth * 50)
-    dig:    do Sense.Indirect { target = $target.secrets }
+    dig:    do Sense.Structured { target = $target.secrets }
         prob = sigmoid(self.skills.research - $target.secrets.obscurity * 50)
     verify: do Sense.Direct { target = $evidence }
 

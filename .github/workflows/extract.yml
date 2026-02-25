@@ -11,12 +11,41 @@ on:
         default: 'everyday'
         type: choice
         options:
+          # Narrative
           - propp
-          - military
-          - everyday
           - tvtropes
           - folklore
+          - booker
+          - campbell
+          - tobias
+          - polti
+          - snyder
+          - dramatica
+          # Game AI
+          - dwarf_fortress
+          - rimworld
+          - goap_strips
+          - utility_ai
+          - paradox
+          - sims
+          - civ
+          - gym_envs
+          # Behavioral Science
+          - maslow
+          - bdi
+          - goffman
+          - game_theory
+          - org_behavior
+          - strategy
+          # Domain Catalogs
+          - everyday
+          - military
           - world_rules
+          - medieval_guilds
+          - dnd_srd
+          - gurps
+          - wikipedia
+          - wikidata
       batch_size:
         description: 'Number of items to extract'
         required: false
@@ -30,18 +59,13 @@ permissions:
 jobs:
   extract:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        # Daily rotation: each day hits a different source
-        # workflow_dispatch overrides with input
-        include:
-          - source: everyday
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          cache: pip
 
       - name: Install dependencies
         run: pip install -r requirements.txt
@@ -53,10 +77,18 @@ jobs:
             echo "source=${{ inputs.source }}" >> $GITHUB_OUTPUT
             echo "batch=${{ inputs.batch_size }}" >> $GITHUB_OUTPUT
           else
-            # Rotate through sources by day of week
-            DAY=$(date +%u)
-            SOURCES=(everyday propp military world_rules tvtropes folklore everyday)
-            echo "source=${SOURCES[$DAY-1]}" >> $GITHUB_OUTPUT
+            # Rotate through sources by day of month (30 sources)
+            DAY=$(date +%d)
+            SOURCES=(
+              everyday propp military world_rules tvtropes folklore
+              booker campbell tobias polti snyder dramatica
+              dwarf_fortress rimworld goap_strips paradox sims civ
+              maslow game_theory strategy medieval_guilds dnd_srd
+              goffman org_behavior bdi utility_ai gurps wikipedia wikidata
+              everyday
+            )
+            IDX=$(( (DAY - 1) % ${#SOURCES[@]} ))
+            echo "source=${SOURCES[$IDX]}" >> $GITHUB_OUTPUT
             echo "batch=5" >> $GITHUB_OUTPUT
           fi
 
@@ -78,14 +110,14 @@ jobs:
           BRANCH="extract/${{ steps.params.outputs.source }}-$(date +%Y%m%d)"
           git checkout -b "$BRANCH"
           git add data/raw/
-          
+
           # Count new files
           NEW=$(git diff --cached --name-only | wc -l)
           if [ "$NEW" -eq 0 ]; then
             echo "No new files extracted. Skipping PR."
             exit 0
           fi
-          
+
           git commit -m "data: extract $NEW items from ${{ steps.params.outputs.source }}
 
           Source: ${{ steps.params.outputs.source }}
@@ -93,13 +125,13 @@ jobs:
           Files: $NEW new .acf files"
 
           git push origin "$BRANCH"
-          
+
           gh pr create \
             --title "Extract: ${{ steps.params.outputs.source }} $(date +%Y-%m-%d)" \
             --body "Automated extraction from ${{ steps.params.outputs.source }}.
 
           **New files:** $NEW
-          **Validation:** ✅ passed
+          **Validation:** passed
 
           Review and merge to move to verification queue." \
             --label extraction \

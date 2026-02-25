@@ -1,0 +1,24 @@
+plan military.ambush [military, tactical] {
+    method forest_ambush {
+        when { terrain.type == forest AND crew.weight >= 3 }
+        scout:   do Sense.Structured { target = $road, secrecy = 0.8 }
+        HIDE:    do Move.Indirect { destination = $treeline, secrecy = 0.9 }
+        strike:  do Attack.Direct { target = $convoy }
+            prob = sigmoid(crew.skills.melee - $convoy.skills.active_defense)
+            fail = RETREAT
+        loot:    do Transfer.Direct { source = $convoy, secrecy = 0.7 }
+        RETREAT: do Move.Structured { destination = $camp, secrecy = 0.9 }
+    }
+    done { self.inventory.value > $convoy.former_value * 0.3 }
+
+    counter threat.ambush_detected {
+        patrol_spotted when $road.garrison > crew.weight * 2
+    }
+}
+
+_provenance {
+    sources = [{ type = test_fixture, id = ambush, confidence = 1.0 }]
+    model = seed
+    verified = true
+    reviewer = test
+}

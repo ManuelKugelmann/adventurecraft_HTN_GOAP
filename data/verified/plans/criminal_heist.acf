@@ -1,0 +1,274 @@
+plan criminal.heist [criminal, economic] {
+
+    params {
+        target_location = SpatialRef
+        vault = ObjectRef
+        safehouse = SpatialRef
+    }
+
+    needs { self.knows(layout_of($target_location)) }
+
+    # ── Classic Crew Heist ────────────────────────────────────────
+    # Ocean's 11 / Brink's / Antwerp Diamond pattern.
+    # Multiple specialists, long planning, coordinated execution.
+    # Real-world: 2-8 accomplices, months of planning, insider common.
+
+    method classic {
+        needs { count(self, AlliedWith, willing = true) >= 3 }
+
+        # Phase 1: Intelligence
+        case_layout:     do acquire_information { about = layout_of($target_location) }
+        case_schedule:   do acquire_information { about = schedule_of($vault.guards) }
+        case_security:   do acquire_information { about = properties_of($vault) }
+
+        # Phase 2: Preparation
+        recruit:         do influence_person { target = $specialist, intent = join_crew }
+        tool_up:         do acquire_item { source = $tools }
+        plan_escape:     do acquire_information { about = route_to($safehouse, fastest) }
+
+        # Phase 3: Execution (timed to guard shift change / holiday)
+        disable_alarms:  do neutralize_security { target = $target_location.alarms }
+        breach:          do gain_entry { target = $vault }
+        extract:         do acquire_item { source = $vault }
+
+        # Phase 4: Escape and cleanup
+        escape:          do move_to { destination = $safehouse }
+        clean:           do cover_tracks { evidence = $forensic_traces }
+
+        outcomes {
+            # Goal: have loot, be free, not pursued
+            accessible(self, $vault.contents), prob = 0.6
+            NOT co_located(self, $target_location), prob = 0.9
+            # Short-term: detection is the resolution link. If detected,
+            # guards WILL alert and pursue (guard role, priorities 45/50).
+            # disable_alarms step suppresses automated alerts.
+            # capture_risk resolves whether pursuit succeeds.
+            visible(self, $vault.guards), prob = detection_risk(self, $vault.guards)
+            NOT pursued(self), prob = 1 - detection_risk(self, $vault.guards) * capture_risk($vault.guards, self)
+            # Long-term: cover_tracks step reduces evidence, but crew = more traces.
+            # If evidence persists → law_enforcement role predicts investigation.
+            NOT attributed(self, theft), prob = 1 - evidence_risk(self, $vault) * attribution_risk(law_enforcement, self)
+            edge(self, law_enforcement, disposition) -= 0.3
+            time += 120
+        }
+    }
+
+    # ── Solo Infiltration ─────────────────────────────────────────
+    # Cat burglar pattern. One agent, stealth-focused.
+    # Real-world: weeks of observation, upper-entry, night timing,
+    # silent tools, compact valuables only.
+
+    method infiltration {
+        needs { self.Skills.stealth > 40 AND capable(self, lockpicking) }
+
+        # Phase 1: Casing (days/weeks of observation)
+        observe_timing:  do acquire_information { about = schedule_of($vault.guards) }
+        map_entry:       do acquire_information { about = layout_of($target_location) }
+        spot_weakness:   do acquire_information { about = weakness_of($target_location.security) }
+
+        # Phase 2: Tool acquisition
+        tool_up:         do acquire_item { source = $lockpicks }
+
+        # Phase 3: Infiltration (timed to low-activity window)
+        approach:        do move_to { destination = $target_location }
+        bypass_outer:    do gain_entry { target = $target_location }
+        navigate:        do move_to { destination = $vault }
+        crack_vault:     do gain_entry { target = $vault }
+
+        # Phase 4: Extraction and vanish
+        grab:            do acquire_item { source = $vault }
+        exit_building:   do move_to { destination = $target_location.exit }
+        vanish:          do move_to { destination = $safehouse }
+
+        outcomes {
+            # Goal: have loot, vanish without a trace
+            accessible(self, $vault.contents), prob = 0.5
+            NOT co_located(self, $target_location), prob = 0.85
+            # Short-term: stealth-focused. Detection is the critical resolution.
+            # If detected, guards WILL pursue (role behavior). Solo = no backup.
+            # capture_risk resolves whether they catch self.
+            visible(self, $vault.guards), prob = detection_risk(self, $vault.guards)
+            NOT pursued(self), prob = 1 - detection_risk(self, $vault.guards) * capture_risk($vault.guards, self)
+            # Long-term: solo = fewer traces, but no cover_tracks step.
+            NOT attributed(self, theft), prob = 1 - evidence_risk(self, $vault) * attribution_risk(law_enforcement, self)
+            self.Vitals.Stamina -= 30
+            time += 90
+        }
+    }
+
+    # ── Inside Job ────────────────────────────────────────────────
+    # Trusted insider provides access/information.
+    # Real-world: insider involvement in 65% of high-value heists (Sandia HMCD).
+    # Insider disables security, provides keys/codes, covers absence.
+
+    method inside_job {
+        needs {
+            self.knows(location_of($insider))
+            AND co_located($insider, $target_location)
+            AND edge(self, $insider, familiarity) > 0.3
+        }
+
+        # Phase 1: Recruit insider (bribe, blackmail, or shared cause)
+        recruit:         do influence_person { target = $insider, intent = cooperate }
+
+        # Phase 2: Intel via insider (bypasses normal recon)
+        get_codes:       do acquire_information { about = properties_of($vault) }
+        get_schedule:    do acquire_information { about = schedule_of($vault.guards) }
+
+        # Phase 3: Insider disables from within
+        insider_disable: do neutralize_security { target = $target_location.alarms, insider = $insider }
+
+        # Phase 4: Enter during insider's shift, extract, leave
+        enter:           do gain_entry { target = $target_location }
+        extract:         do acquire_item { source = $vault }
+        escape:          do move_to { destination = $safehouse }
+
+        # Phase 5: Cover trail
+        cover:           do cover_tracks { evidence = $access_logs }
+
+        outcomes {
+            # Goal: walk out with loot, no one the wiser (until later)
+            accessible(self, $vault.contents), prob = 0.7
+            NOT co_located(self, $target_location), prob = 0.95
+            # Short-term: legitimate access → near-zero detection.
+            # Insider disables alarms. No guard response to model.
+            NOT pursued(self), prob = 0.95
+            # Long-term: insider is the weak link. They know your identity,
+            # the plan, and have motive to talk (plea deal, guilt, blackmail).
+            # High attribution risk despite low evidence risk.
+            NOT attributed(self, theft), prob = 1 - attribution_risk(law_enforcement, self)
+            # Risks: insider can be pressured by investigators
+            edge($insider, law_enforcement, disposition) -= 0.5
+            edge(self, $insider, disposition) -= 0.2
+            time += 60
+        }
+    }
+
+    # ── Smash and Grab ────────────────────────────────────────────
+    # Speed over stealth. Overwhelming force, sub-2-minute window.
+    # Real-world: ram-raids, flash mobs, display-case smashing.
+    # Minimal planning, maximum aggression, high detection prob.
+
+    method smash_and_grab {
+        needs { self.combat_power > 30 }
+
+        # Phase 1: Minimal recon (quick drive-by)
+        scout:           do acquire_information { about = properties_of($target_location) }
+
+        # Phase 2: Tool up (ram vehicle, heavy tools)
+        arm_up:          do acquire_item { source = $ram }
+
+        # Phase 3: Breach — speed is everything
+        ram_entry:       do gain_entry { target = $target_location }
+        smash_vault:     do gain_entry { target = $vault }
+        grab:            do acquire_item { source = $vault }
+
+        # Phase 4: Immediate flight
+        flee:            do move_to { destination = $safehouse }
+
+        outcomes {
+            # Goal: grab loot fast. Escape is the hard part.
+            accessible(self, $vault.contents), prob = 0.75
+            NOT co_located(self, $target_location), prob = 0.85
+            # Short-term: detection is near-certain (loud, destructive).
+            # Alarm is near-certain. Pursuit is near-certain.
+            # Survival depends entirely on speed (chase_chance).
+            visible(self, nearby($target_location, 100)), prob = detection_risk(self, nearby($target_location, 100))
+            NOT pursued(self), prob = chase_chance(self, law_enforcement)
+            NOT captured(self), prob = chase_chance(self, law_enforcement) * (1 - capture_risk(law_enforcement, self))
+            # Long-term: witnesses, destruction = high evidence. But masks + speed
+            # reduce identification_risk. Attribution depends on prior record.
+            NOT attributed(self, theft), prob = 1 - identification_risk(self, nearby($target_location, 100)) * attribution_risk(law_enforcement, self)
+            alive(self), prob = 0.9
+            edge(self, law_enforcement, disposition) -= 0.5
+            $target_location.barrier.Physical.Integrity -= 80
+            time += 5
+        }
+    }
+
+    # ── Long Con ──────────────────────────────────────────────────
+    # Social engineering pattern. Manipulation over months.
+    # Real-world: 4 phases — recon, engagement, exploitation, exit.
+    # Target hands over the goods willingly (or unknowingly).
+
+    method long_con {
+        needs { capable(self, deception) AND self.Skills.deception > 30 }
+
+        # Phase 1: Research the mark
+        research:        do acquire_information { about = properties_of($gatekeeper) }
+        find_leverage:   do acquire_information { about = weakness_of($gatekeeper) }
+
+        # Phase 2: Build cover identity
+        forge_identity:  do establish_cover { persona = $cover_identity }
+
+        # Phase 3: Engagement — build trust over time
+        make_contact:    do influence_person { target = $gatekeeper, intent = befriend }
+        deepen_trust:    do influence_person { target = $gatekeeper, intent = confide }
+
+        # Phase 4: Gain legitimate access
+        get_invited:     do gain_entry { target = $target_location }
+
+        # Phase 5: Extraction under cover
+        extract:         do acquire_item { source = $vault }
+
+        # Phase 6: Vanish — break cover cleanly
+        disappear:       do move_to { destination = $safehouse }
+        erase:           do cover_tracks { evidence = $cover_identity }
+
+        outcomes {
+            # Goal: loot + vanish before mark realizes.
+            accessible(self, $vault.contents), prob = 0.65
+            NOT co_located(self, $target_location), prob = 0.95
+            # Short-term: zero detection during action (legitimate access, no force).
+            # No alarm, no pursuit. This is the best short-term method.
+            NOT pursued(self), prob = 0.95
+            # Long-term: the mark WILL eventually discover the loss.
+            # Cover identity was built over months — very attributable.
+            # The relationship trail IS the evidence. erase step helps but
+            # gatekeeper knows your face (or cover face) and will talk.
+            NOT attributed(self, theft), prob = 1 - attribution_risk($gatekeeper, self)
+            # Risks: burned relationship, possible social network damage
+            edge($gatekeeper, self, disposition) -= 0.8
+            time += 2880
+        }
+    }
+
+    # ── Opportunistic ─────────────────────────────────────────────
+    # Crime of opportunity. No prior planning.
+    # Agent notices unguarded valuables and acts on impulse.
+    # Lowest skill threshold, lowest success rate, fastest.
+
+    method opportunistic {
+        needs { co_located(self, $target_location) AND NOT visible(self, $vault.guards) }
+
+        spot:            do acquire_information { about = properties_of($vault) }
+        grab:            do acquire_item { source = $vault }
+        flee:            do move_to { destination = self.location.adjacent }
+
+        outcomes {
+            # Goal: grab and get away. No safehouse — just flee the scene.
+            accessible(self, $vault.contents), prob = 0.4
+            NOT co_located(self, $target_location), prob = chase_chance(self, nearby(self, 20))
+            # Short-term: depends entirely on who's around. Impulsive = no prep.
+            # Bystander response is uncertain (role/drive dependent, not guards).
+            visible(self, nearby(self, 20)), prob = detection_risk(self, nearby(self, 20))
+            NOT pursued(self), prob = 1 - detection_risk(self, nearby(self, 20)) * capture_risk(nearby(self, 20), self)
+            # Long-term: no cover_tracks, no disguise prep. Witnesses are the main risk.
+            # If identified by someone with familiarity → easy attribution.
+            NOT attributed(self, theft), prob = 1 - detection_risk(self, nearby(self, 20)) * identification_risk(self, nearby(self, 20))
+            edge(self, law_enforcement, disposition) -= 0.2
+            time += 2
+        }
+    }
+}
+
+_provenance {
+    sources = [
+        { type = narrative_pattern, id = heist_archetype, confidence = 0.8 },
+        { type = research, id = sandia_hmcd_heist_study, confidence = 0.85 },
+        { type = narrative_pattern, id = social_engineering_cycle, confidence = 0.8 }
+    ]
+    model = seed
+    verified = true
+    reviewer = manu
+}

@@ -1,0 +1,55 @@
+plan find_water [survival, universal] {
+
+    params {
+        location = SpatialRef
+    }
+
+    # Chains into drink plan. Planner inserts when thirst
+    # is high and no water is accessible.
+
+    method known_source {
+        needs { self.knows(location_of($water_source)) AND $water_source.has(Hydrology) }
+        travel:  do move_to { destination = $water_source }
+        collect: do Transfer.Direct { source = $water_source }
+        outcomes {
+            accessible(self, $collected_water), prob = 0.9
+            time += distance(self, $water_source) / self.Movement.Speed + 5
+        }
+    }
+
+    method ask_locals {
+        needs { co_located(self, $local) AND NOT hostile($local, self) }
+        ask: do influence_person { target = $local, intent = share_knowledge }
+        outcomes {
+            self.knows(location_of($water_source)), prob = 0.7
+            time += 5
+        }
+    }
+
+    method search_terrain {
+        needs { }
+        look_for_greenery: do Sense.Direct { target = self.location }
+        follow_signs:      do Sense.Indirect { target = self.location }
+        outcomes {
+            self.knows(location_of($water_source)), prob = 0.4
+            time += 120
+        }
+    }
+
+    method collect_rain {
+        needs { self.location.Weather.raining AND accessible(self, $container) }
+        set_out: do Modify.Direct { target = $container }
+        wait:    do Sense.Indirect { target = $container }
+        outcomes {
+            accessible(self, $collected_water), prob = 0.8
+            time += 60
+        }
+    }
+}
+
+_provenance {
+    sources = [{ type = common_sense, id = water_procurement, confidence = 0.9 }]
+    model = seed
+    verified = true
+    reviewer = manu
+}

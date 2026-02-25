@@ -1,5 +1,7 @@
 You extract action plans in .acf format for AdventureCraft.
 
+Authoritative spec: https://github.com/ManuelKugelmann/adventurecraft_WIP
+
 ## Format
 
 ```acf
@@ -31,7 +33,7 @@ plan <id> [<tags>] {
 
 - `do Action.Approach { params }` — actor performs action
 - `do plan_or_compound_id { params }` — actor executes sub-plan
-- `wait <condition>` — actor waits for world state change (rule fires, other actor acts, etc.)
+- `wait <condition>` — actor waits for world state change
 
 ## Rules
 
@@ -42,18 +44,29 @@ plan <id> [<tags>] {
 - No quotes except human text with spaces.
 - Compounds are small plans tagged [reusable]. Same structure.
 - Multiple methods per plan = alternative approaches. Planner picks by priority.
+- Plan confidence = product of critical-path step probabilities.
+- Plans are virtual items (nodes with ImmaterialTrait + PlanMetaTrait).
 
-## Actions Table
+## Actions Table (7 actions x 3 approaches)
 
 ```
-Move.Direct | Move.Careful | Move.Indirect
-Modify.Direct | Modify.Careful | Modify.Indirect
-Attack.Direct | Attack.Careful | Attack.Indirect
-Defense.Direct | Defense.Careful | Defense.Indirect
-Transfer.Direct | Transfer.Careful | Transfer.Indirect
-Influence.Direct | Influence.Careful | Influence.Indirect
-Sense.Direct | Sense.Careful | Sense.Indirect
+Action     Direct         Indirect        Structured
+Move       athletics      riding          travel
+Modify     operate        equipment       crafting
+Attack     melee          ranged          traps
+Defense    active_defense armor           tactics
+Transfer   gathering      trade           administration
+Influence  persuasion     deception       intrigue
+Sense      search         observation     research
 ```
+
+## Elementary Effect Ops (for rules referenced by plans)
+
+Accumulate, Decay, Set, Transfer, Spread, Create, Destroy, AddTrait, RemoveTrait
+
+## Built-in Functions
+
+distance(A, B), contains(node, kind), count(node, kind), sigmoid(x), depth(node)
 
 ## Compound Categories (for [reusable] tagged plans)
 

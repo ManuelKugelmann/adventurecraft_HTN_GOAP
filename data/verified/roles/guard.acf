@@ -1,3 +1,16 @@
+# ── Base Guard ───────────────────────────────────────────────────
+# Generic guard: reacts to witnessed events and threat levels.
+# Variants inherit these behaviors and add:
+#   1. Observation (Sense actions that feed sim history perception)
+#   2. Suspicion (trigger suspect.* plans -- write worldmodel overrides)
+#   3. Escalation (role behaviors react to worldmodel overrides + witnessed crimes)
+#
+# Worldmodel = filtered ground truth + stored overrides. Guards don't
+# store GT duplicates -- overrides only for deductions and reports.
+#
+# Suspect plans ONLY write self.worldmodel($subject).active_plan.
+# Escalation comes from the role behaviors below reacting to that.
+
 role guard [military] {
     active_when { assigned_shift }
 
@@ -13,13 +26,136 @@ role guard [military] {
              do Defense.Direct { target = $region },
              priority = 50
 
-    arrest:  when witnessed(crime) AND self.skills.melee > perpetrator.skills.active_defense,
-             do Attack.Careful { target = $perpetrator, intensity = 0.4 },
+    # Arrest: witnessed crime OR worldmodel says subject has active criminal plan
+    arrest:  when (witnessed(crime) OR self.worldmodel($subject).active_plan matches criminal.*)
+                 AND self.skills.melee > $subject.skills.active_defense,
+             do Attack.Indirect { target = $subject, intensity = 0.4 },
              priority = 40
 
-    report:  when witnessed(crime),
-             do Influence.Direct { target = $authority, info = $crime },
+    # Report: witnessed crime OR suspect plan concluded
+    report:  when witnessed(crime)
+                 OR self.worldmodel($subject).active_plan matches criminal.*
+                 OR self.worldmodel($subject).active_plan matches military.*,
+             do Influence.Direct { target = $authority, info = self.worldmodel($subject).active_plan },
              priority = 35
+}
+
+# ── Vault Guard ──────────────────────────────────────────────────
+# Post: treasury, warehouse, vault room.
+# Trained on suspect.heist — recognizes heist method patterns.
+# Running suspect.heist = guard is actively investigating.
+# Observable: guard shifts from routine scan to focused watching.
+
+role vault_guard : guard [military, security] {
+    active_when { assigned_shift AND co_located(self, $post) }
+
+    # Observe: scan area (feeds sim history perception filter)
+    scan_area:      when NOT region.threat_detected,
+                    do Sense.Indirect { target = nearby(self, 30) },
+                    priority = 10
+
+    # Suspect: when suspicious actions perceived, run suspect.heist
+    # The active plan IS the suspicion — costs planning budget
+    suspect_heist:  when self.knows(performed($subject, Sense, target = $post))
+                        OR self.knows(performed($subject, acquire_item, type = tools)),
+                    do suspect.heist { subject = $subject, post = $post },
+                    priority = 25
+
+    # Fallback: broad theft suspicion for patterns outside vault training
+    suspect_theft:  when self.alert
+                        AND self.knows(performed($subject, acquire_item))
+                        AND NOT self.active_plan == suspect.heist,
+                    do suspect.theft { subject = $subject },
+                    priority = 15
+
+    # Challenge: approach and question before full suspicion plan
+    challenge:      when self.knows(performed($subject, Sense, target = $post))
+                        AND visible(self, $subject)
+                        AND NOT self.active_plan == suspect.heist,
+                    do Influence.Direct { target = $subject, intent = identify },
+                    priority = 20
+}
+
+# ── Gate Guard ───────────────────────────────────────────────────
+# Post: city gate, checkpoint, bridge crossing.
+# Trained on suspect.smuggling — recognizes contraband patterns.
+
+role gate_guard : guard [military, security] {
+    active_when { assigned_shift AND co_located(self, $gate) }
+
+    # Observe: inspect everyone passing through
+    inspect:         when $traveler.entering($gate),
+                     do Sense.Direct { target = $traveler },
+                     priority = 20
+
+    # Suspect: smuggling indicators trigger investigation
+    suspect_smuggle: when self.knows(performed($subject, Transfer, concealed = true))
+                         OR self.knows(performed($subject, Move, avoiding = $gate)),
+                     do suspect.smuggling { subject = $subject },
+                     priority = 30
+
+    # Suspect: hostile approach
+    suspect_attack:  when count(approaching($gate, hostile), distance < 200) >= 3,
+                     do suspect.hostile_approach { group = $hostiles },
+                     priority = 50
+
+    # Deny entry to known criminals, hostile faction, or suspected threats
+    deny_entry:      when $traveler.entering($gate)
+                         AND (edge(self.faction, $traveler.faction, disposition) < -0.5
+                              OR self.knows($traveler committed crime)
+                              OR self.worldmodel($traveler).active_plan matches criminal.*),
+                     do Influence.Direct { target = $traveler, intent = turn_away },
+                     priority = 35
+}
+
+# ── Market Guard ─────────────────────────────────────────────────
+# Post: marketplace, bazaar, trade district.
+# Trained on suspect.theft — recognizes pickpocket/shoplifting/con patterns.
+
+role market_guard : guard [military, economic] {
+    active_when { assigned_shift AND co_located(self, $market) }
+
+    # Observe: crowd scanning
+    scan_crowd:      when count(nearby(self, 20)) > 5,
+                     do Sense.Indirect { target = nearby(self, 20) },
+                     priority = 10
+
+    # Suspect: theft indicators
+    suspect_theft:   when self.knows(performed($subject, Move, target = $stall, distance < 1))
+                         OR self.knows(performed($subject, Transfer, source = $mark)),
+                     do suspect.theft { subject = $subject },
+                     priority = 25
+
+    # Suspect: confidence scheme (needs more evidence, lower priority)
+    suspect_con:     when self.knows(performed($subject, Influence, target = $mark, frequency >= 3)),
+                     do suspect.theft { subject = $subject },
+                     priority = 20
+}
+
+# ── Caravan Guard ────────────────────────────────────────────────
+# Post: trade route escort, camp perimeter.
+# Trained on suspect.ambush — recognizes ambush/banditry patterns.
+
+role caravan_guard : guard [military, economic] {
+    active_when { assigned_shift }
+
+    # Observe: route scanning, watch flanks
+    scan_route:      when NOT region.threat_detected,
+                     do Sense.Indirect { target = $route.flanks },
+                     priority = 10
+
+    # Suspect: ambush indicators
+    suspect_ambush:  when self.knows(performed($group, Move, destination = $treeline))
+                         OR (terrain.chokepoint AND visible(self, $obstruction)),
+                     do suspect.ambush { group = $group, route = $route },
+                     priority = 30
+
+    # Defensive formation: position between threat and cargo
+    # Triggers on high threat level OR when suspect plan identified an ambush
+    shield_cargo:    when region.threat_level > 50
+                         OR self.worldmodel($group).active_plan matches military.*,
+                     do Defense.Direct { target = $cargo },
+                     priority = 50
 }
 
 _provenance {

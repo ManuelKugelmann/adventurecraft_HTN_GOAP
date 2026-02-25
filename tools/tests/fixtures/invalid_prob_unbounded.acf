@@ -1,0 +1,5 @@
+rule fire_test [physics, L0] {
+    spread: when region.fire > 0 AND adjacent.has(Flammable),
+            prob = region.fire * adjacent.flammability * 0.01,
+            effect: adjacent.fire += 20
+}

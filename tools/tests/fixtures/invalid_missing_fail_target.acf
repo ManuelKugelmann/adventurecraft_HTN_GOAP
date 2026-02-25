@@ -1,0 +1,6 @@
+plan test.missing_label [test] {
+    method default {
+        step_a: do Move.Direct { target = $destination }
+            fail = NONEXISTENT
+    }
+}

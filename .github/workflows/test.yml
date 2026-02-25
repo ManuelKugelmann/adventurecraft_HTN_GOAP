@@ -1,0 +1,39 @@
+name: Test
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'schema/**'
+      - 'tools/**'
+      - 'data/**/*.acf'
+      - 'requirements.txt'
+  pull_request:
+    paths:
+      - 'schema/**'
+      - 'tools/**'
+      - 'data/**/*.acf'
+      - 'requirements.txt'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests (verbose)
+        run: pytest tools/tests/ -v --tb=short
+
+      - name: Validate all seed data
+        run: python tools/validate.py data/
+
+      - name: Validate seed data (strict)
+        run: python tools/validate.py data/ --strict

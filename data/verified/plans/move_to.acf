@@ -1,0 +1,72 @@
+plan move_to [movement, universal] {
+
+    params {
+        destination = SpatialRef
+    }
+
+    method walk {
+        needs { $destination.has(Region) AND self.knows(route_to($destination, walking)) }
+        step: do Move.Direct { destination = $destination }
+        outcomes {
+            co_located(self, $destination), prob = 0.95
+            self.Vitals.Stamina -= distance(self, $destination) * self.Physical.Weight * 0.1
+            time += distance(self, $destination) / self.Movement.Speed
+        }
+    }
+
+    method ride {
+        needs {
+            self.knows(route_to($destination, riding))
+            AND accessible(self, $mount)
+            AND $mount.has(Rideable)
+        }
+        mount:  do Transfer.Direct { source = $mount.location }
+        travel: do Move.Indirect { destination = $destination, mount = $mount }
+        outcomes {
+            co_located(self, $destination), prob = 0.95
+            self.Vitals.Stamina -= distance(self, $destination) * 0.02
+            $mount.Vitals.Stamina -= distance(self, $destination) * self.Physical.Weight * 0.08
+            time += distance(self, $destination) / $mount.Movement.Speed
+        }
+    }
+
+    method sneak {
+        needs {
+            self.knows(route_to($destination, walking))
+            AND self.Skills.stealth > 20
+        }
+        # Sense-wait-move loop: check for observers, wait for clear, advance.
+        # Repeated per segment of route. Slow but avoids detection.
+        scan:    do Sense.Indirect { target = self.location }
+        wait:    do Sense.Indirect { target = nearby(self, 30) }
+        advance: do Move.Direct { destination = $destination }
+        outcomes {
+            co_located(self, $destination), prob = 0.85
+            NOT visible(self, nearby($destination, 30)), prob = 1 - detection_risk(self, nearby($destination, 30))
+            self.Vitals.Stamina -= distance(self, $destination) * self.Physical.Weight * 0.15
+            time += distance(self, $destination) / (self.Movement.Speed * 0.5)
+        }
+    }
+
+    method sail {
+        needs {
+            self.knows(route_to($destination, sailing))
+            AND accessible(self, $vessel)
+            AND $vessel.has(Vessel)
+        }
+        board:  do Move.Direct { destination = $vessel }
+        sail:   do Move.Structured { destination = $destination, vessel = $vessel }
+        outcomes {
+            co_located(self, $destination), prob = 0.85
+            self.Vitals.Stamina -= distance(self, $destination) * 0.01
+            time += distance(self, $destination) / $vessel.Movement.Speed
+        }
+    }
+}
+
+_provenance {
+    sources = [{ type = design_pattern, id = movement_primitives, confidence = 0.9 }]
+    model = seed
+    verified = true
+    reviewer = manu
+}

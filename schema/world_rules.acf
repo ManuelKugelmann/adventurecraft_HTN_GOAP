@@ -1,0 +1,273 @@
+# ── World Rules Catalog ───────────────────────────────────────────
+#
+# All adversarial and contested actions need a resolution mechanism.
+# Two contexts:
+#   ESTIMATE — planner uses agent knowledge to predict outcomes.
+#              Based on what the agent believes about skills, equipment, etc.
+#   SIMULATE — engine resolves actual outcome at execution time.
+#              Based on world truth. Mismatch = plan failure (correct behavior).
+#
+# Resolution pattern:
+#   prob = sigmoid(actor_strength - opponent_strength + modifiers)
+#   where strength = skill + equipment_bonus + situational_modifiers
+#
+# Categories:
+#   PHYSICS   — L0: fire, water, gravity, structural integrity
+#   BIOLOGY   — L1: metabolism, injury, disease, fatigue
+#   DETECTION — L3: stealth vs observation, concealment, noise
+#   COMBAT    — L3: attack vs defense, weapon vs armor
+#   SOCIAL    — L3: persuasion vs resistance, deception vs perception
+#   ECONOMIC  — L4: trade value, supply/demand, price discovery
+#
+# Status:
+#   core      — required for MVP
+#   planned   — needed, design known
+#   candidate — may be cut or folded
+#
+
+# ── PHYSICS (L0) ──────────────────────────────────────────────────
+# World rules that run every tick regardless of agent actions.
+# See data/verified/rules/ for implementations.
+
+rule_spec fire_propagation [PHYSICS, core] {
+    # Fire spreads to adjacent flammable nodes.
+    inputs: region.fire, adjacent.has(Flammable), region.wind
+    resolution: prob = region.fire * 0.1 * region.wind
+    effect: adjacent.fire += 20
+    implemented: data/verified/rules/fire.acf
+}
+
+rule_spec structural_collapse [PHYSICS, planned] {
+    # Damaged structures fail when integrity drops below threshold.
+    inputs: node.Physical.Integrity, node.Physical.load
+    resolution: prob = sigmoid(node.Physical.load - node.Physical.Integrity)
+    effect: node.Physical.state = collapsed
+    implemented: TBD
+}
+
+rule_spec weather_effects [PHYSICS, planned] {
+    # Rain extinguishes fire, wind affects projectiles, cold causes fatigue.
+    inputs: region.Weather, node properties
+    resolution: varies by weather type
+    effect: varies
+    implemented: TBD
+}
+
+# ── BIOLOGY (L1) ──────────────────────────────────────────────────
+# Run per-entity per-tick. Passive state changes.
+
+rule_spec metabolism [BIOLOGY, core] {
+    # Hunger, thirst, fatigue accumulate over time.
+    inputs: entity.Vitals, time elapsed
+    resolution: rate-based accumulation
+    effect: entity.Vitals.Hunger += rate, entity.Vitals.Thirst += rate
+    implemented: data/verified/rules/metabolism.acf
+}
+
+rule_spec wound_progression [BIOLOGY, planned] {
+    # Untreated wounds worsen. Bleeding reduces health over time.
+    inputs: entity.Vitals.Bleeding, entity.Vitals.Health
+    resolution: rate = entity.Vitals.Bleeding * 0.1
+    effect: entity.Vitals.Health -= rate
+    implemented: TBD
+}
+
+rule_spec disease [BIOLOGY, candidate] {
+    # Infection chance from unsafe water, untreated wounds, proximity to sick.
+    inputs: entity.Vitals, exposure source
+    resolution: prob = sigmoid(exposure - entity.Vitals.immunity)
+    effect: entity.AddTrait(Sick)
+    implemented: TBD
+}
+
+# ── DETECTION (L3) ────────────────────────────────────────────────
+# Resolves whether an actor is noticed by observers.
+# Every action has implicit noise/visibility; engine evaluates these
+# against nearby observers.
+
+rule_spec detection [DETECTION, core] {
+    # Actor performing action near observer → may be detected.
+    actor_strength: actor.Skills.stealth + actor.equipment.stealth_bonus
+    opponent_strength: observer.Skills.observation
+    modifiers: -location.Lighting.concealment, +action.noise, +distance_penalty
+    resolution: prob = sigmoid(opponent_strength - actor_strength + modifiers)
+    effect: visible(actor, observer)
+    implemented: data/verified/rules/detection.acf
+    notes: plans use detection_risk() which calls this rule
+}
+
+rule_spec identification [DETECTION, planned] {
+    # Observer who detects actor attempts to identify them.
+    # Perceptual — brain recognizes face or doesn't. Not a choice.
+    # Chains from detection: only fires if visible(actor, observer).
+    actor_strength: actor.equipment.disguise_quality + actor.Skills.deception * 0.3
+    opponent_strength: observer.Skills.observation * 0.5 + edge(observer, actor, familiarity) * 30
+    modifiers: +Lighting.visibility, -distance(actor, observer)
+    resolution: prob = sigmoid(opponent_strength - actor_strength + modifiers)
+    effect: observer.knows(identity_of(actor))
+    implemented: TBD
+    notes: familiarity dominates; hard to fool someone who knows your face
+}
+
+rule_spec evidence_trace [DETECTION, planned] {
+    # Every physical action at a location may leave items as evidence.
+    # Physics — footprints in mud, tool marks, biological traces.
+    # Not a choice; determined by surface, equipment, and technique.
+    # Evidence nodes are ordinary items with Physical + Decayable traits.
+    # Subject to normal item rules: rain decays them (L0 weather),
+    # fire destroys them (L0 fire), cover_tracks plan Destroys them.
+    # No special forensics system — just items and existing rules.
+    actor_strength: actor.Skills.stealth * 0.5 + actor.equipment.gloves
+    opponent_strength: location.surface.track_retention
+    modifiers: -weather.evidence_decay, +action.physical_contact * 0.3
+    resolution: prob = sigmoid(opponent_strength - actor_strength + modifiers)
+    effect: Create(item with Physical + Decayable, { location, traces, action_type, time = now })
+    implemented: TBD
+    notes: investigators find evidence items via track_following (skill check).
+           The CHOICE to investigate is role behavior, not a world rule.
+}
+
+rule_spec track_following [DETECTION, planned] {
+    # Observer attempts to follow tracks left by actor.
+    # Skill check on physical evidence — given the observer chooses to track,
+    # can they? The CHOICE to track is role behavior (hunter, guard, investigator).
+    actor_strength: actor.Skills.stealth + terrain.softness_penalty
+    opponent_strength: observer.Skills.tracking
+    modifiers: -time_since_passage, -weather.rain
+    resolution: prob = sigmoid(opponent_strength - actor_strength + modifiers)
+    effect: observer.knows(route_taken_by(actor))
+    implemented: TBD
+}
+
+# NOTE: guard_response, investigation, alert decisions are NOT world rules.
+# They are adversary role behaviors — the guard/authority CHOOSES to act.
+# The planner predicts adversary behavior by consulting its KNOWLEDGE of
+# the adversary's role, then running a shallow plan simulation (depth <= 2):
+#   "if detected → guard role says alert(45) + defend(50) → capture_risk"
+#   NOT "guard predicts I'll flee north, so they'll cut me off..."
+#
+# Authorities and laws are implicit contracts, not special systems.
+# A "warrant" is an Influence.Structured action creating a contract.
+# "Mob justice" is agents whose belonging/lawful drives are violated.
+# See docs/plan_architecture.md "Adversary Response Chains" for details.
+
+# ── COMBAT (L3) ───────────────────────────────────────────────────
+# Resolves attack vs defense. Used by Attack and Defense actions.
+
+rule_spec melee_combat [COMBAT, core] {
+    # Attack.Direct vs Defense.Direct
+    actor_strength: attacker.Skills.melee + attacker.equipment.weapon.damage
+    opponent_strength: defender.Skills.active_defense + defender.equipment.armor.protection
+    modifiers: +terrain_advantage, +surprise_bonus, -fatigue_penalty
+    resolution: prob = sigmoid(actor_strength - opponent_strength + modifiers)
+    effect: defender.Vitals.Health -= damage_roll, attacker.equipment.weapon.Condition -= wear
+    implemented: TBD
+}
+
+rule_spec ranged_combat [COMBAT, core] {
+    # Attack.Indirect (ranged)
+    actor_strength: attacker.Skills.ranged + attacker.equipment.weapon.damage
+    opponent_strength: distance(attacker, defender) * 0.5 + defender.Movement.Speed * 0.2
+    modifiers: +wind_penalty, -cover_bonus, +elevation_bonus
+    resolution: prob = sigmoid(actor_strength - opponent_strength + modifiers)
+    effect: defender.Vitals.Health -= damage_roll
+    implemented: TBD
+}
+
+rule_spec trap_resolution [COMBAT, planned] {
+    # Attack.Structured (traps)
+    actor_strength: trap.damage + trap.concealment
+    opponent_strength: victim.Skills.observation + victim.Movement.Speed * 0.1
+    modifiers: -trap.age_decay
+    resolution: prob = sigmoid(actor_strength - opponent_strength + modifiers)
+    effect: victim.Vitals.Health -= trap.damage
+    implemented: TBD
+    notes: trap set by attacker, resolved when victim enters trigger zone
+}
+
+# ── SOCIAL (L3) ───────────────────────────────────────────────────
+# Resolves Influence actions. Persuasion, deception, intimidation.
+
+rule_spec persuasion [SOCIAL, core] {
+    # Influence.Direct — honest appeal
+    actor_strength: actor.Skills.persuasion + edge(actor, target, familiarity) * 20
+    opponent_strength: target.drives.independence * 10 + target.drives.suspicion * 5
+    modifiers: +leverage_bonus, +reputation_bonus, -hostility_penalty
+    resolution: prob = sigmoid(actor_strength - opponent_strength + modifiers)
+    effect: target.willing(intent) = true
+    implemented: TBD
+}
+
+rule_spec deception [SOCIAL, core] {
+    # Influence.Indirect — lies, manipulation
+    actor_strength: actor.Skills.deception
+    opponent_strength: target.Skills.observation + edge(target, actor, familiarity) * 10
+    modifiers: +plausibility_bonus, -prior_deception_penalty
+    resolution: prob = sigmoid(actor_strength - opponent_strength + modifiers)
+    effect: target.believes(false_claim) = true
+    notes: familiarity works AGAINST deceiver — harder to fool someone who knows you
+    implemented: TBD
+}
+
+rule_spec intimidation [SOCIAL, planned] {
+    # Influence.Direct with threat
+    actor_strength: actor.combat_power + actor.reputation.fear * 10
+    opponent_strength: target.drives.courage * 10 + target.combat_power * 0.5
+    modifiers: +weapon_display_bonus, +allies_present_bonus
+    resolution: prob = sigmoid(actor_strength - opponent_strength + modifiers)
+    effect: target.willing(intent) = true, edge(target, actor, disposition) -= 0.3
+    implemented: TBD
+}
+
+rule_spec social_judgment [SOCIAL, core] {
+    # Observer witnesses action, judges actor
+    inputs: observer expectations, witnessed action, cultural norms
+    resolution: edge(observer, actor, disposition) += approval_delta
+    effect: reputation change propagates through social network
+    implemented: data/verified/rules/social_judgment.acf
+}
+
+# ── ECONOMIC (L4) ─────────────────────────────────────────────────
+# Resolves Transfer.Indirect (trade). Price discovery, haggling.
+
+rule_spec trade_resolution [ECONOMIC, planned] {
+    # Buyer and seller agree on price.
+    actor_strength: buyer.Skills.trade + buyer.knowledge_of_price
+    opponent_strength: seller.Skills.trade + seller.knowledge_of_price
+    modifiers: +scarcity_premium, -competition_discount, +urgency_penalty
+    resolution: final_price = base_price * sigmoid(opponent_strength - actor_strength + modifiers)
+    effect: Transfer of goods and currency
+    implemented: TBD
+}
+
+rule_spec theft_discovery [ECONOMIC, planned] {
+    # Owner discovers item is missing.
+    inputs: time since theft, owner.Skills.observation, item visibility
+    resolution: prob_per_tick = sigmoid(owner.familiarity_with_item - time_distraction)
+    effect: owner.knows(missing(item)), owner.alert = true
+    implemented: TBD
+}
+
+# ── SKILL CHECKS (general pattern) ───────────────────────────────
+# All contested actions follow this resolution pattern:
+#
+#   ESTIMATE (planner, belief state):
+#     prob = sigmoid(self.Skills.X - estimated_difficulty)
+#     Agent uses what it knows about the opponent/obstacle.
+#     Wrong estimates → plan fails at execution (correct behavior).
+#
+#   SIMULATE (engine, world truth):
+#     prob = sigmoid(actor.Skills.X + equipment_bonus + situational
+#                    - opponent.Skills.Y - opponent_equipment - situational)
+#     Engine resolves actual outcome using world truth.
+#
+# The gap between ESTIMATE and SIMULATE is what makes agents fallible.
+# A thief who overestimates their lockpicking skill fails at the door.
+# A merchant who underestimates a trader's skill overpays.
+
+_provenance {
+    type: design_catalog
+    status: draft
+    purpose: enumerate all world rules needed for adversarial action resolution
+    categories: PHYSICS L0, BIOLOGY L1, DETECTION L3, COMBAT L3, SOCIAL L3, ECONOMIC L4
+}

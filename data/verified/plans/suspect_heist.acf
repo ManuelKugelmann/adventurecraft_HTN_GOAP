@@ -1,0 +1,105 @@
+# ── Suspect Heist (Vault-Specialized) ────────────────────────────
+# Deep heist pattern analysis for trained vault/treasury guards.
+# Distinguishes heist methods: classic crew, solo infiltration,
+# inside job, smash and grab, security probing.
+#
+# The suspect plan's ONLY job: match observed action patterns against
+# known heist methods, then write the best-matching reconstructed plan
+# as a worldmodel override. self.worldmodel($subject).active_plan gets
+# criminal.heist -- the guard's best reconstruction.
+#
+# Escalation (alert, pursue, arrest) comes from the guard's existing
+# role behaviors reacting to the worldmodel override -- not from this plan.
+
+plan suspect.heist [detection, criminal, security] {
+
+    params {
+        subject = PersonRef
+        post = SpatialRef
+    }
+
+    # ── Classic crew heist ──────────────────────────────────────
+    # Subject gathered intel on layout + schedule + recruited crew
+    method classic_crew {
+        needs {
+            self.knows(performed($subject, acquire_information, about = layout_of($post)))
+            AND self.knows(performed($subject, acquire_information, about = schedule_of($post.guards)))
+            AND self.knows(count(co_located($subject, AlliedWith)) >= 3)
+        }
+        assess: do Sense.Structured { target = $subject }
+        outcomes {
+            self.worldmodel($subject).active_plan = criminal.heist.classic
+            time += 10
+        }
+    }
+
+    # ── Solo infiltration ───────────────────────────────────────
+    # Lone subject repeatedly observing the post + acquired lockpicks
+    method solo_infiltrator {
+        needs {
+            self.knows(performed($subject, Sense, target = $post, count >= 2))
+            AND self.knows(performed($subject, acquire_item, type = lockpicks))
+            AND NOT self.knows(co_located($subject, AlliedWith))
+        }
+        assess: do Sense.Structured { target = $subject }
+        outcomes {
+            self.worldmodel($subject).active_plan = criminal.heist.infiltration
+            time += 8
+        }
+    }
+
+    # ── Inside job ──────────────────────────────────────────────
+    # Trusted insider meeting with unknown outsider + behavior change
+    method inside_job {
+        needs {
+            self.knows(performed($insider, Influence, target = $unknown, frequency >= 3))
+            AND co_located($insider, $post)
+            AND self.knows($insider.behavior_changed)
+        }
+        assess: do Sense.Structured { target = $insider }
+        outcomes {
+            self.worldmodel($unknown).active_plan = criminal.heist.inside_job
+            self.worldmodel($insider).active_plan = criminal.heist.inside_job
+            time += 15
+        }
+    }
+
+    # ── Smash and grab ──────────────────────────────────────────
+    # Armed group approaching fast + heavy equipment — immediate
+    method smash_grab {
+        needs {
+            self.knows(performed($group, Move, destination = $post, speed = fast))
+            AND (self.knows($group.equipped(ram)) OR self.knows($group.combat_power > 30))
+        }
+        assess: do Sense.Structured { target = $group }
+        outcomes {
+            self.worldmodel($group).active_plan = criminal.heist.smash_and_grab
+            time += 2
+        }
+    }
+
+    # ── Security probing ───────────────────────────────────────
+    # Someone testing locks, checking alarm triggers, timing patrols
+    # Not a full heist yet — generic plan, low confidence
+    method probe {
+        needs {
+            self.knows(performed($subject, Sense, target = $post.security))
+            OR self.knows(performed($subject, Modify, target = $post.locks, intent = test))
+        }
+        assess: do Sense.Structured { target = $subject }
+        outcomes {
+            self.worldmodel($subject).active_plan = criminal.heist
+            time += 5
+        }
+    }
+}
+
+_provenance {
+    sources = [
+        { type = design_pattern, id = vault_threat_recognition, confidence = 0.8 },
+        { type = research, id = sandia_hmcd_heist_study, confidence = 0.85 }
+    ]
+    model = seed
+    verified = true
+    reviewer = manu
+}
