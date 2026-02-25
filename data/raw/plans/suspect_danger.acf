@@ -1,0 +1,113 @@
+# ── Suspect Plan: Danger ──────────────────────────────────────────
+# Generic threat detection for any agent with self-preservation or
+# protection drives. Identifies when a subject is about to attack
+# the ward (self or a guarded charge) by matching observable
+# behavioral signatures — weapon state, movement, verbal threats.
+#
+# No specialized training required. Detection is perceptual: what
+# the agent has directly observed or has seen in recent sim history.
+# Running this plan IS the suspicion. Dismissal is automatic when
+# no method's needs are met.
+#
+# Does NOT use keyword detection. Suspicion derives from salient
+# observable parts of an attack plan: weapon state, approach speed,
+# verbal threats, and tactical convergence. The distinction between
+# body attack (attack.*) and inventory attack (criminal.robbery) is
+# determined by the pattern — movement-only means kill/harm,
+# verbal demand means forced transfer.
+#
+# Escalation (flee, counterattack, call for help) is driven by the
+# agent's role and drives reacting to the worldmodel override — not
+# from this plan.
+
+plan suspect.danger [detection, survival] {
+
+    params {
+        subject = PersonRef    # suspected attacker
+        ward    = PersonRef    # who is threatened: self or a protected charge
+    }
+
+    # ── Armed approach ───────────────────────────────────────────
+    # Hostile disposition + weapon drawn + fast close
+    # → subject intends melee body attack
+    method armed_approach {
+        needs {
+            hostile(self, $subject)
+            AND $subject.equipment.weapon.drawn
+            AND self.knows(performed($subject, Move, toward = $ward, speed = fast))
+        }
+        assess: do Sense.Structured { target = $subject }
+        outcomes {
+            self.worldmodel($subject).active_plan = attack.melee
+            time += 1
+        }
+    }
+
+    # ── Armed demand ─────────────────────────────────────────────
+    # Verbal threat directed at ward + weapon displayed
+    # → subject intends forced transfer (robbery / inventory attack)
+    method armed_demand {
+        needs {
+            self.knows(performed($subject, Influence, target = $ward, intent = threaten))
+            AND $subject.equipment.weapon.drawn
+        }
+        assess: do Sense.Structured { target = $subject }
+        outcomes {
+            self.worldmodel($subject).active_plan = criminal.robbery
+            time += 1
+        }
+    }
+
+    # ── Unarmed demand ───────────────────────────────────────────
+    # Verbal threat directed at ward + hostile numbers without weapons
+    # → forced transfer through intimidation alone
+    method unarmed_demand {
+        needs {
+            self.knows(performed($subject, Influence, target = $ward, intent = threaten))
+            AND count(nearby($ward, 5), hostile) >= 2
+        }
+        assess: do Sense.Structured { target = $subject }
+        outcomes {
+            self.worldmodel($subject).active_plan = criminal.robbery
+            time += 2
+        }
+    }
+
+    # ── Coordinated converge ─────────────────────────────────────
+    # Multiple armed hostiles closing around ward from different directions
+    # → coordinated body attack (overwhelm / execute, no negotiation)
+    method coordinated_converge {
+        needs {
+            self.knows(performed($subject, Move, toward = $ward, speed = fast))
+            AND count(nearby($ward, 15), hostile) >= 2
+        }
+        assess: do Sense.Structured { target = $subject }
+        outcomes {
+            self.worldmodel($subject).active_plan = attack.coordinated
+            time += 2
+        }
+    }
+
+    # ── Ranged aim ───────────────────────────────────────────────
+    # Hostile with drawn ranged weapon observed surveilling ward
+    # → subject positioning for ranged body attack
+    method ranged_aim {
+        needs {
+            hostile(self, $subject)
+            AND $subject.equipment.ranged.drawn
+            AND self.knows(performed($subject, Sense, target = $ward))
+        }
+        assess: do Sense.Structured { target = $subject }
+        outcomes {
+            self.worldmodel($subject).active_plan = attack.ranged
+            time += 1
+        }
+    }
+}
+
+_provenance {
+    sources = [{ type = design_pattern, id = threat_recognition, confidence = 0.9 }]
+    model = claude-sonnet-4-6
+    verified = false
+    reviewer = pending
+}
