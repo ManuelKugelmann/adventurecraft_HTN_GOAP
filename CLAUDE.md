@@ -297,8 +297,10 @@ docs/            spec, summary, source catalog
   reconstruction. The thief has the real plan (ground truth). The guard has a
   truncated/wrong/generic version (override). Mismatch = wrong prediction.
   This IS the ESTIMATE/SIMULATE split.
-- Expression syntax: `self.knows(X)` for boolean queries, `self.worldmodel($node)`
-  for structured access. Both query the same worldmodel.
+- Expression syntax: `self.knows(X)` uses the same query syntax as world state
+  queries, just targeting the agent's worldmodel instead of ground truth.
+  No separate "knowledge query language." `self.worldmodel($node)` for
+  structured access to override entries. Both query the same worldmodel.
 - `suspected($subject, plan_id)` is a knowledge fact created when a suspect plan
   reports to authority. Authorities receiving this may activate investigation behaviors.
 

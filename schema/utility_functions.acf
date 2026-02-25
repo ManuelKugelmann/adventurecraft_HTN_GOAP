@@ -245,32 +245,34 @@ function attribution_risk(investigator, suspect) [RESOLUTION, planned] {
 
 # ── KNOWLEDGE: worldmodel queries ────────────────────────────────
 # Each agent has a worldmodel = filtered ground truth + stored overrides.
+# The worldmodel IS a world state -- just a subjective, filtered one.
 #
-# Base layer (live query, no storage): complete world state + sim
-# history, filtered by agent's senses, alertness, memory, co-location,
-# detection_risk, time decay. The engine evaluates the filter on demand.
+# self.knows(X) uses the SAME query syntax as world state queries,
+# just targeting the agent's worldmodel instead of ground truth.
+# No separate "knowledge query language."
 #
-# Override layer (stored, thin): second-hand info (told by others),
-# deductions (suspect plan conclusions), corrections. Overrides
-# reference GT when belief is correct (pointer + confidence meta),
-# store divergent value only when belief is wrong.
+#   Engine (world truth):  $vault.locks.count → 3
+#   Agent (worldmodel):    self.knows($vault.locks.count) → 3 (if perceived)
 #
-# self.knows(fact) = worldmodel.base.contains(fact) OR worldmodel.overrides.contains(fact)
-# self.worldmodel($node) = override entry for that node (mirrors node structure)
+# Base layer (live query, no storage): world state + sim history,
+# filtered by senses, alertness, memory, co-location, detection_risk,
+# time decay. Deterministic replay from sparse keyframes.
 #
-# Both query the same worldmodel. Overrides take priority over base.
+# Override layer (stored, thin): second-hand info, deductions,
+# corrections. Reference GT when correct (pointer + confidence meta),
+# divergent value only when belief is wrong. Overrides take priority.
 #
 # Call syntax: self.knows(fact), self.worldmodel($node).field
 # Engine signature: knows(agent, fact), worldmodel(agent, node)
 
 function knows(agent, fact) [KNOWLEDGE, core] {
-    # Query agent's worldmodel for this fact (checks base + overrides)
+    # Same query syntax as world state, targeting agent's worldmodel.
+    # Checks base (filtered GT) then overrides. Overrides take priority.
     returns: bool
     resolves_to: agent.worldmodel.contains(fact)
     notes: the fundamental knowledge check, gates almost everything.
-           base = sim.history.filter(co_located + detection_risk + alertness + time_decay)
-           overrides = stored refs/divergent values with confidence meta
-           overrides take priority over base when both exist
+           identical expressions work on world truth (engine) and
+           worldmodel (planner) -- mismatch = plan failure at runtime.
 }
 
 function worldmodel(agent, node) [KNOWLEDGE, core] {

@@ -115,15 +115,19 @@ Region → move_to, Knowledge → acquire_information, etc.).
 ## Knowledge as Universal Gate
 
 Almost every `needs` check implicitly requires knowledge. The agent doesn't
-have perfect information — they plan based on their belief state.
+have perfect information — they plan based on their worldmodel.
+
+`self.knows(X)` uses the same query syntax as world state queries, just
+targeting the agent's worldmodel instead of ground truth. Same expressions,
+different target:
 
 ```
-ENGINE: reachable(a, b)          ← world truth, used by engine to validate execution
-AGENT:  self.knows(X)            ← belief state, used in needs { }
+ENGINE: reachable(a, b)          ← world truth, validates execution
+AGENT:  self.knows(reachable(a, b))  ← worldmodel, used in needs { }
 ```
 
-Mismatch between what the agent believes and what's true = plan failure at
-runtime. This is correct behavior (the bridge was out, the map was wrong).
+Mismatch between worldmodel and world truth = plan failure at runtime.
+This is correct behavior (the bridge was out, the map was wrong).
 
 ### Knowledge Types
 
@@ -637,11 +641,32 @@ Only explicitly acquired, told, or deduced facts need storage.
 
 ### Query syntax
 
-- `self.knows(X)` — boolean query into worldmodel (checks base + overrides)
-- `self.worldmodel($node)` — structured access to the agent's model of
-  another node (overrides layer, mirrors node structure)
-- Both query the same worldmodel. `self.worldmodel($node).active_plan`
-  is an override — the agent's best reconstruction of that node's plan.
+`self.knows(X)` uses the same structured query syntax as world state
+queries — it just targets the agent's worldmodel (filtered world state
+\+ overrides) instead of ground truth. No separate "knowledge query
+language." The worldmodel IS a world state, just a subjective one.
+
+```
+# World truth (engine uses at execution time)
+$vault.locks.count                    → 3
+co_located(guard, vault)              → true
+performed(thief, acquire_item, ...)   → true (in sim history)
+
+# Agent worldmodel (planner uses for planning)
+self.knows($vault.locks.count)        → 3 (if perceived or told)
+self.knows(co_located(guard, vault))  → true (if in filtered view)
+self.knows(performed(thief, ...))     → true (if perception filter passed)
+```
+
+Same expressions, different target. The engine resolves against world
+truth. The planner resolves against the agent's worldmodel. Mismatch
+between the two = plan failure at runtime (correct behavior).
+
+- `self.knows(X)` — query worldmodel, returns bool
+- `self.worldmodel($node)` — structured access to override entry for
+  another node (mirrors node structure: active plans, roles, traits)
+- `self.worldmodel($node).active_plan` — the agent's best reconstruction
+  of what that node is doing (written by suspect plans, reports, etc.)
 
 ### Consequences
 
