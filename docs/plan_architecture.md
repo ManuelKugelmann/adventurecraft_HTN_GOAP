@@ -657,6 +657,26 @@ Only explicitly acquired, told, or deduced facts need storage.
 - **Accuracy meta**: Each override carries confidence, source, and
   tick. The planner can weight uncertain overrides lower.
 
+### Deterministic replay from sparse keyframes
+
+The simulation is deterministic. This means the full history doesn't
+need to be stored — only sparse keyframes (world state snapshots at
+intervals). Any detail between keyframes can be reconstructed by
+replaying from the nearest keyframe forward.
+
+This makes the worldmodel base layer even cheaper:
+- **No history storage needed in memory** — replay reconstructs any
+  segment of sim history on demand.
+- **Agent perception queries** resolve by replaying the relevant
+  interval with the agent's perception filter applied. The result is
+  the same as if the full history were stored, but without the cost.
+- **Debug / analysis** — replay any interval to understand exactly
+  what happened, what each agent perceived, and why a plan succeeded
+  or failed. Determinism guarantees identical results.
+- **Save game** — a keyframe + overrides is a complete save. The
+  base layer reconstructs from the keyframe. Overrides are already
+  stored. Total save size = keyframe + thin override layer.
+
 ## Suspect Plans: Suspicion as Active Execution
 
 When an agent suspects criminal or hostile activity, they execute a

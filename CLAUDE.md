@@ -277,6 +277,10 @@ docs/            spec, summary, source catalog
 - **Base layer** (live query, no storage): complete world state + sim history,
   filtered by the agent's senses, alertness, memory, co-location, detection_risk,
   and time decay. `self.knows(fact)` queries this filtered view.
+- **Deterministic replay**: sim is deterministic, so full history doesn't need
+  storage — only sparse keyframes. Any interval reconstructs by replaying from
+  the nearest keyframe with the agent's perception filter applied. Save game =
+  keyframe + thin override layer.
 - **Override layer** (stored): second-hand information (someone told me),
   deductions (suspect plan conclusions), corrections to stale perception.
   Overrides take priority over the filtered base when both exist.
