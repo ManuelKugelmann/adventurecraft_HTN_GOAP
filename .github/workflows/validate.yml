@@ -25,7 +25,7 @@ jobs:
 
       - name: Validate changed files
         run: |
-          CHANGED=$(git diff --name-only ${{ github.event.pull_request.base.sha }} -- '*.acf')
+          CHANGED=$(git diff --name-only ${{ github.event.pull_request.base.sha }} HEAD -- '*.acf')
 
           if [ -z "$CHANGED" ]; then
             echo "No .acf files changed."

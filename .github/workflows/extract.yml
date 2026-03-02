@@ -100,39 +100,66 @@ jobs:
             --source ${{ steps.params.outputs.source }} \
             --batch ${{ steps.params.outputs.batch }}
 
-      - name: Validate extracted data
-        run: python tools/validate.py data/raw/
+      - name: Validate and auto-fix (up to 5 retries per file)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          python tools/fix_errors.py \
+            data/raw/${{ steps.params.outputs.source }}/ \
+            --retries 5
+
+      - name: Validate (final gate)
+        run: python tools/validate.py data/raw/${{ steps.params.outputs.source }}/
+
+      - name: Ensure extraction label exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create "extraction" \
+            --color "#0075ca" \
+            --description "Automated extraction PR" \
+            2>/dev/null || true
 
       - name: Create PR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          BRANCH="extract/${{ steps.params.outputs.source }}-$(date +%Y%m%d)"
+          SOURCE="${{ steps.params.outputs.source }}"
+          BATCH="${{ steps.params.outputs.batch }}"
+          BRANCH="extract/${SOURCE}-$(date +%Y%m%d)"
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
           git checkout -b "$BRANCH"
           git add data/raw/
 
-          # Count new files
           NEW=$(git diff --cached --name-only | wc -l)
           if [ "$NEW" -eq 0 ]; then
             echo "No new files extracted. Skipping PR."
             exit 0
           fi
 
-          git commit -m "data: extract $NEW items from ${{ steps.params.outputs.source }}
+          git commit -m "$(cat <<EOF
+data: extract ${NEW} items from ${SOURCE}
 
-          Source: ${{ steps.params.outputs.source }}
-          Batch: ${{ steps.params.outputs.batch }}
-          Files: $NEW new .acf files"
+Source: ${SOURCE}
+Batch: ${BATCH}
+Files: ${NEW} new .acf files
+EOF
+)"
 
-          git push origin "$BRANCH"
+          git push -u origin "$BRANCH"
 
           gh pr create \
-            --title "Extract: ${{ steps.params.outputs.source }} $(date +%Y-%m-%d)" \
-            --body "Automated extraction from ${{ steps.params.outputs.source }}.
+            --title "Extract: ${SOURCE} $(date +%Y-%m-%d)" \
+            --body "$(cat <<EOF
+Automated extraction from \`${SOURCE}\`.
 
-          **New files:** $NEW
-          **Validation:** passed
+**New files:** ${NEW}
+**Validation:** passed (auto-fixed where needed)
 
-          Review and merge to move to verification queue." \
-            --label extraction \
-            --label ${{ steps.params.outputs.source }}
+Review and merge to move to verification queue.
+EOF
+)" \
+            --label extraction
