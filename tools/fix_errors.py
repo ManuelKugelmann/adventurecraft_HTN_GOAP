@@ -36,12 +36,23 @@ Key rules:
 - Tags are bare identifiers in `[]`, no quotes
 - Approaches are Direct, Indirect, Structured only (NOT Careful, Cautious, etc.)
 - Plans use `needs { }` and `outcomes { }` — NOT `precond`, `done`, `when`, or `estimates`
-- `prob` must be bounded 0..1; use a resolution function (sigmoid) or a literal in 0..1
+- `prob` must use a named resolution function: observation_chance, combat_chance,
+  detection_risk, persuasion_chance, deception_chance, resolve_conflict, etc.
+  OR a numeric literal in 0..1. Never use sigmoid() or prob() directly.
 - Authority and reputation are DERIVED from relationships — never stored as attributes
 - Counter blocks: ONLY observable state (pos, weight, faction, garrison, equipped, \
 action, terrain, formation, visible). NEVER: drives, plans, knowledge, mood, skills
 - `rate` and `prob` are mutually exclusive on rules
 - Bare tokens everywhere; quotes ONLY for human-readable strings with spaces
+
+If a validation error cannot be cleanly resolved given the current spec, append a
+`_tbd { }` block at the end of the file instead of guessing:
+
+    _tbd {
+        context = fix_errors
+        gap = "brief description of why this cannot be fixed"
+        detail = "what is ambiguous and what resolution direction would help"
+    }
 
 Return ONLY the corrected .acf file content. No markdown fences. No explanation.
 """

@@ -62,6 +62,16 @@ function co_located(a, b) [ENGINE, core] {
 # Plans reference these; engine implements the actual sigmoid.
 # Pattern: sigmoid(actor_strength - opponent_strength + situational)
 
+function resolve_conflict(actor_strength, opponent_strength, situational) [RESOLUTION, core] {
+    # Generic contested-action resolution. Use this when no named function fits.
+    # Named functions (combat_chance, detection_risk, etc.) are preferred for
+    # readability — they capture semantics and make plans self-documenting.
+    # Use resolve_conflict for novel contest types or in world rule definitions.
+    # NEVER use sigmoid() directly in plan or rule data — use this instead.
+    returns: float
+    resolution: sigmoid(actor_strength - opponent_strength + situational)
+}
+
 function detection_risk(actor, observers) [RESOLUTION, core] {
     # Probability that actor is detected during current action.
     # Used in plan outcomes: visible(self, X), prob = detection_risk(self, X)

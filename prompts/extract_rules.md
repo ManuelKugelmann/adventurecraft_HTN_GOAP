@@ -71,6 +71,22 @@ Before outputting, verify:
 5. Every sub-rule has a unique name within the rule block
 6. Effect ops are from the valid set
 
+## TBD Logging
+
+If you encounter something that doesn't map cleanly to the spec — a concept with
+no good fit, an assumption you're unsure of, or a pattern that needs spec extension
+— append a `_tbd { }` block at the end of the file:
+
+```acf
+_tbd {
+    context = extract_rules
+    gap = "brief description of the issue"
+    detail = "what is unclear, what assumption was made, suggested resolution"
+}
+```
+
+The build pipeline will collect these and append them to TBD.md.
+
 ## Output
 
 Return ONLY .acf content. No markdown fences. No prose.

@@ -1,6 +1,6 @@
 rule fire [physics, L0] {
     spread:  when region.fire > 0 AND adjacent.has(Flammable),
-             prob = sigmoid(region.fire * adjacent.flammability * 0.01),
+             prob = min(region.fire * adjacent.flammability * 0.01, 1.0),
              effect: adjacent.fire += 20
 
     consume: when region.fire > 0,

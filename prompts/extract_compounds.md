@@ -48,6 +48,22 @@ Sense      search         observation     research
 - Compounds should be generic enough to reuse across many plans.
 - done condition should be measurable world state change.
 
+## TBD Logging
+
+If you encounter something that doesn't map cleanly to the spec — a concept with
+no good fit, an assumption you're unsure of, or a pattern that needs spec extension
+— append a `_tbd { }` block at the end of the file:
+
+```acf
+_tbd {
+    context = extract_compounds
+    gap = "brief description of the issue"
+    detail = "what is unclear, what assumption was made, suggested resolution"
+}
+```
+
+The build pipeline will collect these and append them to TBD.md.
+
 ## Output
 
 Return ONLY .acf content. No markdown fences. No prose.

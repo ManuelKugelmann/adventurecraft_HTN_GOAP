@@ -4,7 +4,7 @@ plan military.ambush [military, tactical] {
         scout:   do Sense.Structured { target = $road, secrecy = 0.8 }
         HIDE:    do Move.Indirect { destination = $treeline, secrecy = 0.9 }
         strike:  do Attack.Direct { target = $convoy }
-            prob = sigmoid(crew.skills.melee - $convoy.skills.active_defense)
+            prob = combat_chance(crew, $convoy)
             fail = RETREAT
         loot:    do Transfer.Direct { source = $convoy, secrecy = 0.7 }
         RETREAT: do Move.Structured { destination = $camp, secrecy = 0.9 }

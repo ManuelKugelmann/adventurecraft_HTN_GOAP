@@ -129,9 +129,28 @@ EXPR_FUNCTIONS = {
     "count", "any", "sum", "product",
     "distance", "contains", "depth",
     "edge", "co_located", "nearby", "witnessed",
+    # Resolution functions (all return 0..1 via internal sigmoid)
+    "resolve_conflict",
+    "detection_risk", "persuasion_chance", "deception_chance",
+    "intimidation_chance", "combat_chance", "lockpick_chance",
+    "craft_chance", "observation_chance", "trade_advantage",
+    "chase_chance", "identification_risk", "capture_risk",
+    "evidence_risk", "attribution_risk",
 }
 
-BOUNDED_FUNCTIONS = {"sigmoid", "prob"}  # guaranteed 0..1
+# Functions guaranteed to return 0..1 — no wrapping needed.
+# Use named resolution functions in all plan/rule data.
+# Do NOT use sigmoid() or prob() directly in .acf files.
+RESOLUTION_FUNCTIONS = {
+    "resolve_conflict",  # generic; use named variants where possible
+    "detection_risk", "persuasion_chance", "deception_chance",
+    "intimidation_chance", "combat_chance", "lockpick_chance",
+    "craft_chance", "observation_chance", "trade_advantage",
+    "chase_chance", "identification_risk", "capture_risk",
+    "evidence_risk", "attribution_risk",
+}
+
+BOUNDED_FUNCTIONS = RESOLUTION_FUNCTIONS  # sigmoid/prob are implementation details, not data API
 
 # ── Validation errors ─────────────────────────
 
@@ -263,22 +282,31 @@ def quick_validate(filepath: str, content: str) -> ValidationResult:
     # Check prob expressions are bounded (heuristic)
     for m in RE_PROB.finditer(content):
         expr = m.group(1).strip()
-        if not any(fn in expr for fn in ("sigmoid", "prob", "min(", "max(")):
-            if re.match(r"^[\d.]+$", expr):
-                val = float(expr)
-                if not 0 <= val <= 1:
-                    result.add(ValidationError(
-                        file=filepath, path=f"prob = {expr}",
-                        rule="prob_bounded",
-                        message=f"Probability {val} outside 0..1"
-                    ))
-            else:
+        # Accept any call to a known bounded function
+        if any(f"{fn}(" in expr for fn in BOUNDED_FUNCTIONS):
+            continue
+        # Accept min()/max() clamps
+        if "min(" in expr or "max(" in expr:
+            continue
+        if re.match(r"^[\d.]+$", expr):
+            val = float(expr)
+            if not 0 <= val <= 1:
                 result.add(ValidationError(
                     file=filepath, path=f"prob = {expr}",
                     rule="prob_bounded",
-                    message="Probability expression should use sigmoid() or prob() to ensure 0..1 bounds",
-                    severity="warning"
+                    message=f"Probability {val} outside 0..1"
                 ))
+        else:
+            result.add(ValidationError(
+                file=filepath, path=f"prob = {expr}",
+                rule="prob_bounded",
+                message=(
+                    "Probability expression should use a named resolution function "
+                    "(observation_chance, combat_chance, resolve_conflict, etc.). "
+                    "Do not use sigmoid() or prob() directly."
+                ),
+                severity="warning"
+            ))
 
     # Check observability in counter blocks
     in_counter = False
