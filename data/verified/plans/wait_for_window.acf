@@ -1,0 +1,65 @@
+plan wait_for_window [utility] {
+
+    # ── Temporal gate — defer execution until estimate crosses threshold ──
+    #
+    # Reusable sub-plan for any action that should only fire when conditions
+    # are favorable. The agent observes the environment each tick and
+    # re-evaluates. Exits when $condition becomes true OR $max_wait is reached.
+    #
+    # $condition  — any consider_action() field threshold expression.
+    #               Evaluated against actor.worldmodel each tick.
+    # $max_wait   — hard patience limit in sim-time units.
+    #               Independently capped by drives_permit(): a drive hard-veto
+    #               exits the wait regardless of $max_wait.
+    #
+    # Typical usage:
+    #   method wait_and_sneak {
+    #       needs { consider_action(self, Move.Direct, $dest).detection_prob >= 0.15 }
+    #       wait: do wait_for_window {
+    #                 condition = consider_action(self, Move.Direct, $dest).detection_prob < 0.15
+    #                 max_wait = 60
+    #             }
+    #       move: do Move.Direct { destination = $dest }
+    #   }
+    #
+    # Patience caps:
+    #   Agent drive urgency overrides $max_wait — an agent with urgent hunger
+    #   will not wait 60 ticks for a stealth window. drives_permit() is checked
+    #   each tick inside the wait loop; hard veto exits with timeout failure.
+    #   Effective max_wait = min($max_wait, ticks_until_next_drive_hard_veto(self)).
+    #
+    # On timeout: plan step fails. Planner replans from the point of failure.
+    #   Higher-level plan may fallback to a non-gated method, abandon goal,
+    #   or address the drive violation first.
+
+    needs { $condition is evaluable AND $max_wait > 0 }
+
+    method observe_and_wait {
+        needs { NOT $condition }
+
+        # Observe keeps worldmodel fresh so $condition evaluation is meaningful.
+        # Loop: planner re-evaluates method needs each tick;
+        # when $condition becomes true, observe step is no longer needed and
+        # the planner drops to the parent method's next step.
+        observe: do Sense.Indirect { target = nearby(self, 30) }
+    }
+
+    method condition_already_met {
+        needs { $condition }
+        # No steps — condition is already true, proceed immediately.
+    }
+
+    outcomes {
+        $condition, prob = 0.8
+        time += $actual_wait
+        self.Vitals.Stamina -= $actual_wait * 0.02
+    }
+
+}
+
+_provenance {
+    sources = [{ type = design_pattern, id = temporal_gating, confidence = 0.9 }]
+    model = seed
+    verified = false
+    reviewer = pending
+}

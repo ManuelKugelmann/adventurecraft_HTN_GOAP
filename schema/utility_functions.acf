@@ -546,48 +546,105 @@ function execute_action(actor, action_type, approach, target, params) [ENGINE, c
            Mismatch between the two is what causes plan failures and surprises.
 }
 
-function consider_action(actor, action_type, approach, target, params) [ENGINE, core] {
-    # ESTIMATE context: evaluates an action candidate before committing.
-    # Called by the planner when scoring method candidates, and by execute_action
-    # pre-flight before every execution. ALL lookups use actor.worldmodel only —
-    # no ground truth access. Returns ActionEstimate for planner and drives_permit().
+function consider_action(actor, action_type, approach, target, params, projected_state) [ENGINE, core] {
+    # ESTIMATE context: evaluates a SINGLE action in isolation.
+    # Intentionally shallow — one step, one outcome distribution.
+    # For multi-step method evaluation, use simulate_method() which calls this
+    # iteratively, threading projected_state forward through the chain.
+    #
+    # projected_state: explicit worldmodel snapshot to evaluate against.
+    #   Defaults to actor.worldmodel when omitted (current belief state).
+    #   simulate_method() supplies a mutated copy after each step so that step N
+    #   sees the projected outcomes of steps 1..N-1, not the live worldmodel.
+    #   This is how precondition checks chain: "key now in inventory" is true
+    #   in projected_state after the acquire_item step, even though it isn't yet.
     #
     # Returns ActionEstimate {
-    #   success_prob:      P(primary goal state achieved), from worldmodel estimates
+    #   success_prob:      P(primary goal state achieved), from projected_state estimates
     #   secrecy_estimate:  effective_secrecy_estimate(actor) — deterministic, no roll
-    #   detection_prob:    P(detected by known nearby observers in worldmodel)
+    #   detection_prob:    P(detected by known nearby observers in projected_state)
     #   evidence_prob:     P(persistent evidence left, from evidence_risk estimate)
-    #   costs:             { time, stamina, resources } — estimated from worldmodel
-    #   goal_deltas:       [fact, prob] — expected world state changes
+    #   costs:             { time, stamina, resources } — estimated from projected_state
+    #   goal_deltas:       [fact, prob] — projected world state changes after this step
     #   drive_impact:      { danger_score, stamina_drain, hunger_cost, ... }
     # }
     #
-    # The planner calls this repeatedly to compare methods before selecting one.
-    # execute_action calls it once in pre-flight, feeds result to drives_permit().
+    # execute_action calls this in pre-flight with the default projected_state
+    # (actor.worldmodel) — at that point the planner has already committed to the
+    # method; this is a final sanity check before each leaf step fires.
     returns: ActionEstimate
-    notes: secrecy_estimate is deterministic (no roll) — point estimate for comparison.
-           Actual secrecy roll happens in execute_action after drives_permit passes.
-           detection_prob uses actor.worldmodel.known_observers, not all observers.
+    notes: single-action scope only. compound method evaluation is simulate_method().
+           detection_prob uses projected_state.known_observers, not all observers.
            Planner uncertainty about observers = risk underestimate = plan surprise.
+           Actual secrecy roll happens in execute_action after drives_permit passes.
+    # ── Use as a needs {} threshold gate ──────────────────────────────────
+    # consider_action() is callable inside plan needs {} to gate method variants
+    # or individual steps at runtime (not just at planning time):
+    #
+    #   method stealth_window {
+    #       needs { consider_action(self, Move.Direct, $dest).detection_prob < 0.15 }
+    #       move: do Move.Direct { destination = $dest }
+    #   }
+    #   method wait_and_sneak {
+    #       needs { consider_action(self, Move.Direct, $dest).detection_prob >= 0.15 }
+    #       wait: do wait_for_window {
+    #                 condition = consider_action(self, Move.Direct, $dest).detection_prob < 0.15
+    #                 max_wait = 60
+    #             }
+    #       move: do Move.Direct { destination = $dest }
+    #   }
+    #
+    # max_wait is bounded by drive urgency: an agent with Drives.hunger > 60 will
+    # not wait 60 ticks. The wait_for_window sub-plan checks drives_permit() each
+    # tick and exits early if a drive hard-veto fires. See plans/utility/wait_for_window.acf.
+    # ─────────────────────────────────────────────────────────────────────
 }
 
-function effective_secrecy_estimate(actor) [DERIVED, core] {
-    # Deterministic point estimate of effective_secrecy for planning and consider_action.
-    # No random roll — the planner needs a consistent value for method comparison.
-    # Actual rolled value resolved at execute_action() time.
-    # Uses actor.worldmodel for location factors — no ground truth access.
-    returns: float
-    resolves_to: actor.Skills.stealth
-               + actor.modifier.stealth * 20
-               + actor.equipment.stealth_bonus
-               + actor.worldmodel.location.Lighting.concealment * 10
-               + actor.worldmodel.location.cover * 5
+function simulate_method(actor, method, projected_state, budget) [ENGINE, planned] {
+    # Forward simulation of an entire plan method as an ordered step sequence.
+    # Chains consider_action() calls, threading projected_state through each step:
+    #   for each step in method.steps:
+    #     estimate = consider_action(actor, step, projected_state)
+    #     if drives_permit(actor, estimate) → accept step, apply estimate.goal_deltas
+    #       to projected_state copy, continue
+    #     else → method fails pre-selection; return failed compound estimate
+    #   compound_estimate.success_prob = product(step.success_prob for all steps)
+    #   compound_estimate.costs        = sum(step.costs for all steps)
+    #   compound_estimate.drive_impact = max(step.drive_impact for all steps)
+    #   compound_estimate.detection_prob = 1 - product(1 - step.detection_prob)
+    #
+    # budget: agent.Intelligence.planning_budget — limits depth and method count.
+    #   Simple agents afford shallow evaluation (few steps, no sub-method recursion).
+    #   Smart agents afford deep evaluation (full decomposition tree, adversary models).
+    #   Budget applies across the full planning tick, not per call.
+    #
+    # projected_state is a COPY — mutations do not affect the live worldmodel.
+    # The planner calls this for each candidate method, picks highest-value compound
+    # estimate that passes drives_permit(), then commits to execute.
+    #
+    # Sub-plan steps: if a step references a sub-plan (not a leaf action), recurse
+    #   with reduced budget. If budget is exhausted, approximate the sub-plan with a
+    #   single consider_action() call using the sub-plan's declared outcomes directly.
+    returns: ActionEstimate  # compound over all steps
+    notes: this is what the planner's method selection actually runs.
+           consider_action() is the leaf primitive; simulate_method() is the aggregate.
+           drives_permit() is called per-step (hard veto) AND on the compound result
+           (ensures the method as a whole doesn't violate drive thresholds cumulatively).
+           compound estimate also gates method-variant selection in needs {} —
+           a method whose simulate_method() result fails a needs threshold is
+           simply not selected, same as any other unmet precondition.
 }
 
 function drives_permit(actor, estimate) [DERIVED, core] {
-    # True if proceeding with this action is consistent with actor's active drive state.
-    # Called by execute_action pre-flight with the ActionEstimate from consider_action().
-    # Also callable by the planner to pre-filter method candidates before scoring.
+    # True if the estimate is consistent with the actor's active drive state.
+    # Accepts both single-step ActionEstimate (from consider_action) and compound
+    # ActionEstimate (from simulate_method). Compound estimates use max(drive_impact)
+    # for danger and sum(costs) for stamina — so a method with one high-danger step
+    # fails the same as a single dangerous action.
+    #
+    # Called by:
+    #   simulate_method() — per step AND on compound result; rejects whole method early
+    #   execute_action pre-flight — final check before leaf step fires
     #
     # Hard vetoes (return false, plan interrupted, agent role behavior activated):
     #   estimate.drive_impact.danger_score > actor.Drives.risk_tolerance
@@ -601,7 +658,6 @@ function drives_permit(actor, estimate) [DERIVED, core] {
     #
     # Hard veto = engine interrupts current plan, activates agent role behavior.
     # Soft veto = agent role behavior competes at elevated priority next tick.
-    # The agent role is the shared low-level behavioral gate for ALL agents.
     returns: bool
     notes: specialised roles may tighten or loosen thresholds by overriding
            the relevant agent role behaviors. e.g. soldier role raises risk_tolerance.
