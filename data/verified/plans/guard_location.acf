@@ -12,7 +12,10 @@ plan guard_location [security, social] {
         walk_route: do Move.Direct { destination = $post.patrol_point }
         observe:    do Sense.Indirect { target = $post }
         outcomes {
-            visible(self, nearby($post, 30)), prob = observation_chance(self, nearby($post, 30))
+            # Sense.Indirect feeds the sense filter → worldmodel automatically.
+            # Guard's worldmodel of $post area is refreshed; any evidence or
+            # actors in range are resolved and written to their knowledge worldmodel.
+            self.Vitals.Fatigue += 5
             time += 30
         }
     }
@@ -21,7 +24,6 @@ plan guard_location [security, social] {
         needs { co_located(self, $post) }
         watch: do Sense.Indirect { target = $post }
         outcomes {
-            visible(self, nearby($post, 15)), prob = observation_chance(self, nearby($post, 30))
             self.Vitals.Fatigue += 10
             time += 60
         }
@@ -41,7 +43,9 @@ plan guard_location [security, social] {
         needs { accessible(self, $animal) AND $animal.Skills.observation > 20 }
         station: do Modify.Direct { target = $animal }
         outcomes {
-            visible($animal, nearby($post, 50)), prob = 0.8
+            # Animal stationed at post; its own sense filter now covers the area.
+            # Detection is auto-resolved through the animal's worldmodel.
+            co_located($animal, $post), prob = 0.9
             time += 5
         }
     }

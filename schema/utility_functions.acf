@@ -73,11 +73,13 @@ function resolve_conflict(actor_strength, opponent_strength, situational) [RESOL
 }
 
 function detection_risk(actor, observers) [RESOLUTION, core] {
-    # Direct, real-time detection: observer perceives actor in the moment (sync path).
-    # actor_strength IS effective_secrecy(actor) — the resolved, always-on stealth presence.
-    # effective_secrecy already incorporates skill + modifier + equipment + location concealment.
-    # Async detection (observer finds evidence after actor departed) uses observation_chance().
-    # Used in plan outcomes: visible(self, X), prob = detection_risk(self, X)
+    # Probability that actor is perceived by observers in the current action tick.
+    # Called by the engine's sense filter pipeline — NOT called from plan data.
+    # The sense filter runs automatically after every action (and during idle).
+    # Results flow into the observer's sense-filtered worldmodel → knowledge worldmodel.
+    # Plans do NOT declare detection in outcomes {}. Detection is a world-side process.
+    # Plans may reference detection_risk as a cost ESTIMATE in method selection logic,
+    # but the actual resolution is always engine-side via the sense filter.
     returns: float
     actor_strength:    effective_secrecy(actor)
     opponent_strength: observers.Skills.observation
@@ -89,7 +91,7 @@ function detection_risk(actor, observers) [RESOLUTION, core] {
                      - location.ambient_noise * 3
                      + location.crowd_density * 2
     resolution: sigmoid(opponent_strength - actor_strength + situational)
-    rule: data/verified/rules/detection.acf
+    sense_filter: data/verified/rules/detection.acf
 }
 
 function persuasion_chance(actor, target) [RESOLUTION, core] {

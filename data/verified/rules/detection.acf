@@ -1,9 +1,11 @@
 rule detection [social, L3] {
 
-    # ── Direct, real-time detection (sync path) ───────────────────────
+    # ── Sense filter — direct, real-time perception (sync path) ──────
     #
-    # Resolves when an observer co-exists with an actor during an action.
-    # Checks happen at action time against the perception-filtered world state.
+    # These rules ARE the engine's sense filter. They run automatically
+    # after every action (and during idle). Results write to the observer's
+    # sense-filtered worldmodel, which then feeds their knowledge worldmodel.
+    # Plans do NOT trigger or declare these — they are world-side processes.
     #
     # actor_strength IS effective_secrecy(actor) — the engine-rolled value cached
     # for this action tick. All observers check against the same roll; the actor
@@ -12,8 +14,6 @@ rule detection [social, L3] {
     #
     # Evidence generation (the async path) is handled by generate_evidence() called
     # automatically by the engine, and by rules in data/verified/rules/evidence.acf.
-    # Plans declare: visible(self, X), prob = detection_risk(self, X)
-    # for direct detection risk only.
 
     spot_by_guard: when observer.role.has(guard_training)
                        AND co_located(observer, $actor.location)
