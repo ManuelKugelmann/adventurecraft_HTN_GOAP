@@ -136,7 +136,24 @@ EXPR_FUNCTIONS = {
     "craft_chance", "observation_chance", "trade_advantage",
     "chase_chance", "identification_risk", "capture_risk",
     "evidence_risk", "attribution_risk",
+    # Planning estimate functions (return ActionEstimate struct, not float)
+    # Used in needs {} / outcomes {} — often via $var = consider_action(...) binding
+    "consider_action", "consider_plan",
+    "effective_secrecy_estimate", "drives_permit",
 }
+
+# Functions that return structured values (not scalar/float).
+# When accessed as $var = f(...), field access $var.field is valid.
+# The prob_bounded check must not flag $var.some_prob_field as unbounded.
+STRUCTURED_RETURN_FUNCTIONS = {
+    "consider_action", "consider_plan",
+}
+
+# ── Local variable binding ────────────────────
+# $var = expr  inside needs {} / outcomes {} is a local binding.
+# $var without = is a plan parameter (must be bound at invocation).
+# Regex matches local binding declarations.
+RE_LOCAL_BINDING = re.compile(r"^\s*\$(\w+)\s*=\s*(.+)", re.MULTILINE)
 
 # Functions guaranteed to return 0..1 — no wrapping needed.
 # Use named resolution functions in all plan/rule data.
@@ -280,6 +297,8 @@ def quick_validate(filepath: str, content: str) -> ValidationResult:
             ))
 
     # Check prob expressions are bounded (heuristic)
+    # Collect local bindings so $var.field access is not flagged as unbounded
+    local_bindings = {m.group(1) for m in RE_LOCAL_BINDING.finditer(content)}
     for m in RE_PROB.finditer(content):
         expr = m.group(1).strip()
         # Accept any call to a known bounded function
@@ -288,6 +307,11 @@ def quick_validate(filepath: str, content: str) -> ValidationResult:
         # Accept min()/max() clamps
         if "min(" in expr or "max(" in expr:
             continue
+        # Accept $var.field access — field of a bound local (e.g. $est.detection_prob)
+        if re.match(r"^\$(\w+)\.", expr):
+            var_name = re.match(r"^\$(\w+)", expr).group(1)
+            if var_name in local_bindings:
+                continue
         if re.match(r"^[\d.]+$", expr):
             val = float(expr)
             if not 0 <= val <= 1:

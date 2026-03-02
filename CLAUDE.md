@@ -119,8 +119,27 @@ The planner auto-inserts sub-plans when `needs` are unmet (e.g. missing item, mi
 Trait field paths: `Vitals.Health`, `entity.path`
 Built-in functions: see `schema/utility_functions.acf` for full catalog
 Core functions: `distance(A, B)`, `accessible(self, node)`, `co_located(a, b)`, `visible(a, b)`, `self.knows(X)`
+Planning functions: `consider_action(self, Action.Approach, target)`, `consider_plan(self, method)`
 Math: `sigmoid(x)`, `min()`, `max()`, `abs()`, `count()`, `sum()`
 Operators: `+ - * / < > == != >= <= AND OR NOT`
+
+### Local variable bindings
+
+`$var = expr` inside `needs {}` or `outcomes {}` binds a local variable.
+Use when a structured-return function result is accessed on multiple fields — call once, read many:
+
+```acf
+needs {
+    $est = consider_action(self, Move.Direct, $dest),
+    $est.detection_prob < 0.15 AND $est.costs.stamina < self.Vitals.Stamina
+}
+```
+
+Scoping rules:
+- A `$name` with `= expr` in the block is a **local** (computed once in scope)
+- A `$name` without `= expr` is a **plan parameter** (must be bound at invocation)
+- Local bindings do not cross block boundaries (`needs` locals invisible in `outcomes`)
+- Bindings must be declared before use within the same block
 
 ## Validation Rules
 
