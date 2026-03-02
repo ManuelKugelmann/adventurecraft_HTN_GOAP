@@ -6,13 +6,15 @@ For each .acf file that fails validation, sends the file content and
 error details to Claude and writes back the corrected version.
 Retries up to --retries times per file (default 5).
 
-Files that cannot be fixed after all retries are deleted so they do
-not appear in the extraction PR. They will be re-extracted next run.
+Files that cannot be fixed after all retries are moved to a `failed/`
+subdirectory inside the target directory (the "failed heap") so they
+are committed in the PR for human review rather than silently lost.
 
-Exit code: 0 (all files valid or removed), 1 (fatal/unexpected error).
+Exit code: 0 (all files valid), 1 (one or more moved to failed heap).
 """
 
 import argparse
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -192,9 +194,14 @@ def main() -> int:
         return 0
 
     fixed_count = 0
-    removed_count = 0
+    failed_count = 0
+    failed_dir = target_dir / "failed"
 
     for filepath in files:
+        # Skip files already in the failed heap
+        if filepath.parent.name == "failed":
+            continue
+
         result = quick_validate(str(filepath), filepath.read_text())
         if result.ok:
             continue
@@ -203,15 +210,17 @@ def main() -> int:
         if success:
             fixed_count += 1
         else:
-            print(f"  GAVE UP: removing {filepath.name} (will re-extract next run)")
-            filepath.unlink()
-            removed_count += 1
+            failed_dir.mkdir(exist_ok=True)
+            dest = failed_dir / filepath.name
+            shutil.move(str(filepath), str(dest))
+            print(f"  GAVE UP: moved to failed heap → {dest}")
+            failed_count += 1
 
     print(
         f"\nFix pass complete: "
-        f"{fixed_count} fixed, {removed_count} removed (unfixable)"
+        f"{fixed_count} fixed, {failed_count} moved to failed/ heap"
     )
-    return 0
+    return 1 if failed_count > 0 else 0
 
 
 if __name__ == "__main__":
