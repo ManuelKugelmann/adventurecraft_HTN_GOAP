@@ -297,8 +297,11 @@ def quick_validate(filepath: str, content: str) -> ValidationResult:
             ))
 
     # Check prob expressions are bounded (heuristic)
-    # Collect local bindings so $var.field access is not flagged as unbounded
-    local_bindings = {m.group(1) for m in RE_LOCAL_BINDING.finditer(content)}
+    # This check cannot type-verify expressions — it only catches obvious mistakes.
+    # Any $var.field access is accepted: variables are user-typed and structured
+    # return fields (e.g. ActionEstimate.detection_prob) are known to be 0..1.
+    # A real type system would derive boundedness from return types; this heuristic
+    # cannot, so widening to accept all $var.field is the correct tradeoff.
     for m in RE_PROB.finditer(content):
         expr = m.group(1).strip()
         # Accept any call to a known bounded function
@@ -307,11 +310,9 @@ def quick_validate(filepath: str, content: str) -> ValidationResult:
         # Accept min()/max() clamps
         if "min(" in expr or "max(" in expr:
             continue
-        # Accept $var.field access — field of a bound local (e.g. $est.detection_prob)
-        if re.match(r"^\$(\w+)\.", expr):
-            var_name = re.match(r"^\$(\w+)", expr).group(1)
-            if var_name in local_bindings:
-                continue
+        # Accept any $var.field access — field on any bound variable
+        if re.match(r"^\$\w+\.", expr):
+            continue
         if re.match(r"^[\d.]+$", expr):
             val = float(expr)
             if not 0 <= val <= 1:

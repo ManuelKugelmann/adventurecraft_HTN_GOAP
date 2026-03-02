@@ -598,19 +598,17 @@ function consider_action(actor, action_type, approach, target, params, projected
     #               AND $est.secrecy_estimate > 40 }
     #       move: do Move.Direct { destination = $dest }
     #   }
-    #   method wait_and_sneak {
+    #   method observe_and_retry {
     #       needs { $est = consider_action(self, Move.Direct, $dest),
-    #               $est.detection_prob >= 0.15 }
-    #       wait: do wait_for_window {
-    #                 condition = consider_action(self, Move.Direct, $dest).detection_prob < 0.15
-    #                 max_wait = 60
-    #             }
-    #       move: do Move.Direct { destination = $dest }
+    #               $est.detection_prob >= 0.15 AND time_in_plan < $patience }
+    #       wait: do wait_for_window { max_wait = $patience }
+    #       # Planner re-evaluates the full plan next tick.
+    #       # stealth_window becomes available when detection_prob drops.
     #   }
     #
-    # max_wait is bounded by drive urgency: an agent with Drives.hunger > 60 will
-    # not wait 60 ticks. The wait_for_window sub-plan checks drives_permit() each
-    # tick and exits early if a drive hard-veto fires. See plans/wait_for_window.acf.
+    # Condition lives in the caller's needs {}, not in wait_for_window.
+    # The expression language does not support predicate/lambda parameters.
+    # See plans/wait_for_window.acf for the observe-and-yield contract.
     # ─────────────────────────────────────────────────────────────────────
 }
 

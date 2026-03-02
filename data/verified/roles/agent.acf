@@ -11,21 +11,25 @@ role agent [universal, L1] {
     # Hard vetoes interrupt the current plan and activate the relevant behavior here.
     # Soft violations insert competing behaviors at elevated priority next tick.
     #
-    # Drive thresholds (0 = none, 100 = critical):
-    #   < 20  = critical — hard veto on most actions, overrides everything
-    #   20-40 = urgent  — elevated priority, competes with current goal
-    #   40-80 = present — managed by normal plan scheduling
-    #   > 80  = satiated — suppressed
+    # Drive scale: deprivation. 0 = fully satisfied, 100 = critical deprivation.
+    #   > 80 = critical — hard veto, overrides everything
+    #   60-80 = urgent  — elevated priority, competes with current goal
+    #   30-60 = present — managed by normal plan scheduling
+    #   < 30  = suppressed — not a current concern
     #
     # Priority scale context (from guard role):
     #   patrol = 5, alert = 45, defend = 50, arrest = 40
     #   Agent preemptions slot above goal priorities for survival urgency.
+    #
+    # Note: drives_permit() handles estimate-based vetoes (danger_score on planned
+    # actions). The behaviors here are reactive — already in a bad state.
 
     # ── Survival (hard veto range — highest priority) ─────────────────
 
-    flee_lethal_threat: when estimate.drive_impact.danger_score > self.Drives.risk_tolerance
+    flee_lethal_threat: when self.Vitals.Health < 20
+                            AND nearby(self, 20).any(hostile)
                             AND NOT capable(self, combat),
-                        do flee_danger { threat = nearest_threat(self) },
+                        do flee_danger { threat = nearby(self, 20).filter(hostile).closest },
                         priority = 95
 
     tend_wounds_critical: when self.Vitals.Health < 20,
@@ -35,11 +39,11 @@ role agent [universal, L1] {
     # ── Urgent survival (urgent range — preempts most goal plans) ─────
 
     drink_urgent: when self.Drives.thirst > 80,
-                  do drink { source = nearest(water) },
+                  do drink { source = nearby(self, 50).filter(type = water).closest },
                   priority = 75
 
     eat_urgent: when self.Drives.hunger > 80,
-                do eat { source = nearest(food) },
+                do eat { source = nearby(self, 50).filter(Edible).closest },
                 priority = 70
 
     seek_shelter_urgent: when self.Drives.exposure > 80
@@ -57,12 +61,12 @@ role agent [universal, L1] {
 
     # ── Present (soft range — competes at low priority, rarely preempts) ─
 
-    drink_present: when self.Drives.thirst > 50,
-                   do drink { source = nearest(water) },
+    drink_present: when self.Drives.thirst > 60,
+                   do drink { source = nearby(self, 50).filter(type = water).closest },
                    priority = 35
 
-    eat_present: when self.Drives.hunger > 50,
-                 do eat { source = nearest(food) },
+    eat_present: when self.Drives.hunger > 60,
+                 do eat { source = nearby(self, 50).filter(Edible).closest },
                  priority = 30
 
     rest_present: when self.Drives.fatigue > 60,
