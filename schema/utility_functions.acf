@@ -516,10 +516,14 @@ function execute_action(actor, action_type, approach, target, params) [ENGINE, c
     #   1. PRE-FLIGHT
     #      — Validate needs {} against actor.worldmodel (not ground truth)
     #      — Call consider_action() [= consider_plan at depth=0] for ActionEstimate
-    #      — Call drives_permit(actor, estimate): if false, interrupt plan and
-    #        activate the relevant agent role behavior instead (self-preservation,
-    #        urgent hunger/fatigue). The agent role is the shared low-level gate
-    #        for all agents. See data/verified/roles/agent.acf.
+    #      — Call drives_permit(actor, estimate): GOAL PLAN STEPS ONLY.
+    #        If false, interrupt plan and activate the relevant agent role behavior
+    #        instead. The agent role is the shared low-level gate for all agents.
+    #        See data/verified/roles/agent.acf.
+    #        ROLE BEHAVIORS SKIP THIS CHECK. drives_permit() redirects to role
+    #        behaviors; re-checking inside them is circular and causes deadlock
+    #        (e.g. flee blocked by low stamina, agent dies unable to act).
+    #        Role behaviors are already the drives response — no gate needed.
     #      — Resolve effective_secrecy(actor): ONE ROLL, cached for this action tick
     #      — Compute effective_noise(actor) from cached secrecy
     #   2. ROUTE to action sub-handler (7x3 table):
@@ -654,6 +658,10 @@ function consider_plan(actor, plan_or_method, projected_state, budget) [ENGINE, 
 
 function drives_permit(actor, estimate) [DERIVED, core] {
     # True if the estimate is consistent with the actor's active drive state.
+    # SCOPE: goal plan steps only. NEVER called for role behavior steps —
+    # role behaviors bypass this check (they ARE the drive response; checking
+    # permits on them is circular and deadlocks survival behaviors like flee).
+    #
     # Accepts both single-step ActionEstimate (from consider_action) and compound
     # ActionEstimate (from simulate_method). Compound estimates use max(drive_impact)
     # for danger and sum(costs) for stamina — so a method with one high-danger step
@@ -661,7 +669,7 @@ function drives_permit(actor, estimate) [DERIVED, core] {
     #
     # Called by:
     #   simulate_method() — per step AND on compound result; rejects whole method early
-    #   execute_action pre-flight — final check before leaf step fires
+    #   execute_action pre-flight — final check before leaf step fires (goal plans only)
     #
     # Hard vetoes (return false, plan interrupted, agent role behavior activated):
     #   estimate.drive_impact.danger_score > actor.Drives.risk_tolerance
