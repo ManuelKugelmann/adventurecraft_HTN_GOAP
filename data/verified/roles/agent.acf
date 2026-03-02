@@ -81,6 +81,45 @@ role agent [universal, L1] {
                        do Sense.Indirect { target = nearby(self, 20) },
                        priority = 3
 
+    involuntary {
+
+        # ── Involuntary reflexes ───────────────────────────────────────────
+        # Triggered by world events, not polled from drive state.
+        # Use `strength` instead of `priority`. Countered by will_strength(actor).
+        # reflex_suppressed(actor, strength) → if false, reflex fires and
+        # interrupts the current action entirely — including high-priority role
+        # behaviors. Will is the only counter; priority arbitration does not apply.
+        #
+        # Strength tiers (see reflex_suppressed() in utility_functions.acf):
+        #   0-30  = startle/flinch    — most agents suppress naturally
+        #   30-60 = pain/fear         — requires trained willpower
+        #   60-80 = terror/agony      — only composure-trained agents resist
+        #   80+   = overwhelming      — near-impossible to suppress
+
+        startle: when sudden_event(nearby(self, 10))
+                     AND NOT self.knows(performed(event.source, any)),
+                 do interrupt_current_action { },
+                 strength = 20
+
+        pain_flinch: when damage_received > 0,
+                     do interrupt_current_action { duration = 1 },
+                     strength = damage_received * 0.5
+
+        fear_freeze: when visible(self, $threat)
+                         AND combat_chance($threat, self) > 0.85
+                         AND self.Drives.fear > 60,
+                     do freeze { target = $threat, duration = 2 },
+                     strength = combat_chance($threat, self) * 80
+                                + self.Drives.fear * 0.3
+
+        # Collapse: triggered when health falls below 10 — not a fear response,
+        # a physical failure. No will counter — strength = 100.
+        collapse: when self.Vitals.Health < 10,
+                  do incapacitate { },
+                  strength = 100
+
+    }
+
 }
 
 _provenance {
