@@ -484,41 +484,44 @@ function suspected(subject, plan_id) [KNOWLEDGE, candidate] {
 # time the engine validates against world truth; mismatch = plan failure.
 
 function will_strength(actor) [DERIVED, core] {
-    # Effective willpower — resistance to involuntary reflex suppression.
-    # Compared against reflex.strength each tick an active reflex is present.
-    # will_strength >= reflex.strength → reflex suppressed, agent acts normally.
-    # will_strength <  reflex.strength → reflex fires, intended action interrupted.
+    # Effective willpower — resistance to drive-triggered behavior compulsion.
+    # All role behaviors are involuntary to some degree; will determines resistance.
+    # Polled behaviors: threshold = behavior.priority (fixed).
+    # Event-triggered behaviors: threshold = behavior.strength (dynamic, event-scaled).
+    # will_strength >= threshold → agent can suppress the urge, acts voluntarily.
+    # will_strength <  threshold → behavior fires compulsorily.
     #
     # base:        actor.Skills.willpower
     # situational: - (100 - actor.Vitals.Health) * 0.3   # wounded degrades will
     #              - actor.Drives.fatigue * 0.2            # exhausted degrades will
     #              - actor.Drives.fear   * 0.4             # fear compounds — panic spiral
-    # returns: float
-    # notes: fear compounding is intentional: a frightened agent suppresses reflexes
-    #        less reliably, making subsequent shocks progressively harder to resist.
-    #        Trained agents (high willpower base) resist the spiral longer.
-    #        Roles that specialise in composure (soldier, guard) raise base willpower.
+    # notes: fear compounding is intentional: a frightened agent resists drives less
+    #        reliably, making each subsequent compulsion harder to suppress.
+    #        Roles specialising in composure (soldier, guard) raise base willpower,
+    #        shifting the effective suppression threshold for all their behaviors.
     returns: float
 }
 
-function reflex_suppressed(actor, reflex_strength) [DERIVED, core] {
-    # True if the actor's will is strong enough to suppress a reflex of reflex_strength.
-    # false → reflex fires, interrupts current action entirely.
-    # true  → agent feels the impulse but acts through it.
+function will_suppressed(actor, threshold) [DERIVED, core] {
+    # Universal check: true if the actor's will is strong enough to suppress
+    # a drive behavior with the given threshold (priority or strength).
+    # false → behavior fires compulsorily, interrupts current action.
+    # true  → agent feels the urge but can choose to act through it.
     #
-    # Reflex tiers by strength (matching agent.acf involuntary { } block):
-    #   strength  0-30  — startle, minor flinch. Suppressed by most agents.
-    #   strength 30-60  — pain response, sudden fear. Requires trained will.
-    #   strength 60-80  — terror freeze, severe pain. Only composed agents resist.
-    #   strength 80+    — overwhelming involuntary: collapse, blackout, seizure.
-    #                     Suppression near-impossible without exceptional willpower.
+    # Used for all drive-triggered behaviors in execute_action pre-flight:
+    #   polled behaviors   → threshold = behavior.priority (will_suppressed called
+    #                        per active behavior each tick; unsuppressed ones fire)
+    #   event-triggered    → threshold = behavior.strength (evaluated at event time;
+    #                        dynamic — pain_flinch strength scales with damage received)
+    #   goal plan steps    → no will check — fully voluntary
     #
-    # Reflex strength may be fixed (trait of the triggering entity/event) or dynamic
-    # (scaled by event magnitude, e.g. damage_received * 0.5 for pain_flinch).
-    # The engine evaluates reflex_strength once when the trigger event occurs;
-    # the resulting reflex is active on the actor until it resolves or is suppressed.
+    # Threshold tiers (matching agent.acf priority/strength scale):
+    #   0-20   easily suppressed — most agents ignore ambient urges
+    #   20-60  moderate will required — trained agents push through pain, hunger
+    #   60-80  high will required — only composure-trained agents resist terror/agony
+    #   80+    overwhelming — near-impossible to suppress; collapse at 100 is absolute
     returns: bool
-    formula: will_strength(actor) >= reflex_strength
+    formula: will_strength(actor) >= threshold
 }
 
 function effective_secrecy(actor) [ENGINE, core] {
@@ -552,12 +555,14 @@ function execute_action(actor, action_type, approach, target, params) [ENGINE, c
     #
     # Pipeline (in order):
     #   1. PRE-FLIGHT
-    #      — Check active involuntary reflexes: for each reflex active on actor,
-    #        if NOT reflex_suppressed(actor, reflex.strength) → fire reflex instead,
-    #        interrupt intended action. Reflexes are not planned — they preempt
-    #        everything including high-priority role behaviors. The only counter
-    #        is will_strength(actor) >= reflex.strength.
-    #        See agent.acf involuntary { } block and reflex_suppressed().
+    #      — Will check on all active drive behaviors (polled and event-triggered):
+    #        for each active drive behavior, evaluate will_suppressed(actor, threshold)
+    #        where threshold = behavior.priority (polled) or behavior.strength (event).
+    #        Unsuppressed behaviors fire instead of the intended action.
+    #        All drive behaviors are involuntary to degree = threshold; will is the
+    #        only counter. Event-triggered behaviors (pain_flinch, fear_freeze, etc.)
+    #        preempt first as they arrive from discrete events in the tick.
+    #        See agent.acf and will_suppressed().
     #      — Validate needs {} against actor.worldmodel (not ground truth)
     #      — Call consider_action() [= consider_plan at depth=0] for ActionEstimate
     #      — Call drives_permit(actor, estimate, action_priority):

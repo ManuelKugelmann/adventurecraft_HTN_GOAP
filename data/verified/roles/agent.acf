@@ -4,27 +4,27 @@ role agent [universal, L1] {
     #
     # Present on every entity with a Drives trait. All specialized roles
     # inherit from this: role guard : agent, role farmer : agent, etc.
-    # Defines the universal drive-triggered preemption behaviors that compete
-    # with goal plans. Higher urgency = higher priority = may preempt current plan.
     #
-    # drives_permit() checks these thresholds at execute_action pre-flight.
-    # Hard vetoes interrupt the current plan and activate the relevant behavior here.
-    # Soft violations insert competing behaviors at elevated priority next tick.
+    # All drive-triggered behaviors are involuntary to some degree.
+    # Degree of involuntariness = priority (polled) or strength (event-triggered).
+    # will_suppressed(actor, threshold) determines if the agent can resist:
+    #   will_strength(actor) >= threshold → agent can suppress the urge
+    #   will_strength(actor) <  threshold → behavior fires compulsorily
+    #
+    # Polled behaviors use `priority` as both the scheduler weight and will threshold.
+    # Event-triggered behaviors use `strength = expr` (dynamic, scaled by event magnitude).
+    # Goal plan steps have no will check — they are fully voluntary.
     #
     # Drive scale: deprivation. 0 = fully satisfied, 100 = critical deprivation.
-    #   > 80 = critical — hard veto, overrides everything
-    #   60-80 = urgent  — elevated priority, competes with current goal
-    #   30-60 = present — managed by normal plan scheduling
-    #   < 30  = suppressed — not a current concern
+    #   > 80 = critical  — will threshold so high most agents cannot suppress
+    #   60-80 = urgent   — elevated priority, requires trained will to push through
+    #   30-60 = present  — manageable, moderate will suppresses easily
+    #   < 30  = low      — easily ignored, only suppressed if will is very low
     #
     # Priority scale context (from guard role):
     #   patrol = 5, alert = 45, defend = 50, arrest = 40
-    #   Agent preemptions slot above goal priorities for survival urgency.
-    #
-    # Note: drives_permit() handles estimate-based vetoes (danger_score on planned
-    # actions). The behaviors here are reactive — already in a bad state.
 
-    # ── Survival (hard veto range — highest priority) ─────────────────
+    # ── Overwhelming (priority 90-100, near-impossible to suppress) ────
 
     flee_lethal_threat: when self.Vitals.Health < 20
                             AND nearby(self, 20).any(hostile)
@@ -36,7 +36,31 @@ role agent [universal, L1] {
                           do tend_wound { target = self },
                           priority = 90
 
-    # ── Urgent survival (urgent range — preempts most goal plans) ─────
+    # Event-triggered: strength scales with event magnitude, not a fixed level.
+    # An agent with very high willpower may suppress a minor blow (strength 5)
+    # but not a devastating hit (strength 80+).
+
+    collapse: when self.Vitals.Health < 10,
+              do incapacitate { },
+              strength = 100
+
+    fear_freeze: when visible(self, $threat)
+                     AND combat_chance($threat, self) > 0.85
+                     AND self.Drives.fear > 60,
+                 do freeze { target = $threat, duration = 2 },
+                 strength = combat_chance($threat, self) * 80
+                            + self.Drives.fear * 0.3
+
+    pain_flinch: when damage_received > 0,
+                 do interrupt_current_action { duration = 1 },
+                 strength = damage_received * 0.5
+
+    startle: when sudden_event(nearby(self, 10))
+                 AND NOT self.knows(performed(event.source, any)),
+             do interrupt_current_action { },
+             strength = 20
+
+    # ── Urgent (priority 60-80, trained will can suppress) ────────────
 
     drink_urgent: when self.Drives.thirst > 80,
                   do drink { source = nearby(self, 50).filter(type = water).closest },
@@ -59,7 +83,7 @@ role agent [universal, L1] {
                  do rest { location = self.location },
                  priority = 60
 
-    # ── Present (soft range — competes at low priority, rarely preempts) ─
+    # ── Present (priority 20-35, easily suppressed by moderate will) ──
 
     drink_present: when self.Drives.thirst > 60,
                    do drink { source = nearby(self, 50).filter(type = water).closest },
@@ -73,52 +97,11 @@ role agent [universal, L1] {
                   do rest { location = self.location },
                   priority = 20
 
-    # ── Awareness baseline (always-on at lowest priority) ─────────────
-    # Keeps agent's worldmodel reasonably current.
-    # May be suppressed by specialized roles with higher-priority Sense behaviors.
+    # ── Awareness baseline (always-on, suppressed by nearly any will) ─
 
     ambient_awareness: when self.Drives.alertness > 20,
                        do Sense.Indirect { target = nearby(self, 20) },
                        priority = 3
-
-    involuntary {
-
-        # ── Involuntary reflexes ───────────────────────────────────────────
-        # Triggered by world events, not polled from drive state.
-        # Use `strength` instead of `priority`. Countered by will_strength(actor).
-        # reflex_suppressed(actor, strength) → if false, reflex fires and
-        # interrupts the current action entirely — including high-priority role
-        # behaviors. Will is the only counter; priority arbitration does not apply.
-        #
-        # Strength tiers (see reflex_suppressed() in utility_functions.acf):
-        #   0-30  = startle/flinch    — most agents suppress naturally
-        #   30-60 = pain/fear         — requires trained willpower
-        #   60-80 = terror/agony      — only composure-trained agents resist
-        #   80+   = overwhelming      — near-impossible to suppress
-
-        startle: when sudden_event(nearby(self, 10))
-                     AND NOT self.knows(performed(event.source, any)),
-                 do interrupt_current_action { },
-                 strength = 20
-
-        pain_flinch: when damage_received > 0,
-                     do interrupt_current_action { duration = 1 },
-                     strength = damage_received * 0.5
-
-        fear_freeze: when visible(self, $threat)
-                         AND combat_chance($threat, self) > 0.85
-                         AND self.Drives.fear > 60,
-                     do freeze { target = $threat, duration = 2 },
-                     strength = combat_chance($threat, self) * 80
-                                + self.Drives.fear * 0.3
-
-        # Collapse: triggered when health falls below 10 — not a fear response,
-        # a physical failure. No will counter — strength = 100.
-        collapse: when self.Vitals.Health < 10,
-                  do incapacitate { },
-                  strength = 100
-
-    }
 
 }
 
