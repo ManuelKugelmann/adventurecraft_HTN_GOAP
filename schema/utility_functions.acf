@@ -515,7 +515,7 @@ function execute_action(actor, action_type, approach, target, params) [ENGINE, c
     # Pipeline (in order):
     #   1. PRE-FLIGHT
     #      — Validate needs {} against actor.worldmodel (not ground truth)
-    #      — Call consider_action() to get ActionEstimate from worldmodel
+    #      — Call consider_action() [= consider_plan at depth=0] for ActionEstimate
     #      — Call drives_permit(actor, estimate): if false, interrupt plan and
     #        activate the relevant agent role behavior instead (self-preservation,
     #        urgent hunger/fatigue). The agent role is the shared low-level gate
@@ -547,14 +547,16 @@ function execute_action(actor, action_type, approach, target, params) [ENGINE, c
 }
 
 function consider_action(actor, action_type, approach, target, params, projected_state) [ENGINE, core] {
-    # ESTIMATE context: evaluates a SINGLE action in isolation.
-    # Intentionally shallow — one step, one outcome distribution.
-    # For multi-step method evaluation, use simulate_method() which calls this
-    # iteratively, threading projected_state forward through the chain.
+    # Leaf-level specialisation of consider_plan(). Equivalent to:
+    #   consider_plan(actor, do action_type.approach { params }, projected_state, budget=0)
+    # Kept as a named form because it reads more naturally in inline needs {} expressions:
+    #   needs { consider_action(self, Move.Direct, $dest).detection_prob < 0.15 }
+    # Both are ESTIMATE context. consider_plan() calls consider_action() at leaf depth.
+    # See consider_plan() for the general case and the full ESTIMATE context description.
     #
     # projected_state: explicit worldmodel snapshot to evaluate against.
     #   Defaults to actor.worldmodel when omitted (current belief state).
-    #   simulate_method() supplies a mutated copy after each step so that step N
+    #   consider_plan() supplies a mutated copy after each step so that step N
     #   sees the projected outcomes of steps 1..N-1, not the live worldmodel.
     #   This is how precondition checks chain: "key now in inventory" is true
     #   in projected_state after the acquire_item step, even though it isn't yet.
@@ -596,25 +598,31 @@ function consider_action(actor, action_type, approach, target, params, projected
     #
     # max_wait is bounded by drive urgency: an agent with Drives.hunger > 60 will
     # not wait 60 ticks. The wait_for_window sub-plan checks drives_permit() each
-    # tick and exits early if a drive hard-veto fires. See plans/utility/wait_for_window.acf.
+    # tick and exits early if a drive hard-veto fires. See plans/wait_for_window.acf.
     # ─────────────────────────────────────────────────────────────────────
 }
 
-function simulate_method(actor, method, projected_state, budget) [ENGINE, planned] {
-    # Forward simulation of an entire plan method as an ordered step sequence.
+function consider_plan(actor, plan_or_method, projected_state, budget) [ENGINE, planned] {
+    # ESTIMATE context: the general deliberation function. consider_action() is this
+    # function at leaf granularity (single step, budget=0). Both are the same concept —
+    # "evaluate before committing" — across the full plan hierarchy:
+    #   consider_action()  = consider_plan(depth=0)  — leaf action, inline needs use
+    #   consider_plan()    = consider_action() + chaining + budget-limited recursion
+    # Never SIMULATE: all lookups use projected_state (worldmodel copy), not ground truth.
+    #
     # Chains consider_action() calls, threading projected_state through each step:
-    #   for each step in method.steps:
+    #   for each step in plan_or_method.steps:
     #     estimate = consider_action(actor, step, projected_state)
     #     if drives_permit(actor, estimate) → accept step, apply estimate.goal_deltas
     #       to projected_state copy, continue
-    #     else → method fails pre-selection; return failed compound estimate
-    #   compound_estimate.success_prob = product(step.success_prob for all steps)
-    #   compound_estimate.costs        = sum(step.costs for all steps)
-    #   compound_estimate.drive_impact = max(step.drive_impact for all steps)
+    #     else → plan fails pre-selection; return failed compound estimate
+    #   compound_estimate.success_prob   = product(step.success_prob for all steps)
+    #   compound_estimate.costs          = sum(step.costs for all steps)
+    #   compound_estimate.drive_impact   = max(step.drive_impact for all steps)
     #   compound_estimate.detection_prob = 1 - product(1 - step.detection_prob)
     #
     # budget: agent.Intelligence.planning_budget — limits depth and method count.
-    #   Simple agents afford shallow evaluation (few steps, no sub-method recursion).
+    #   Simple agents afford shallow evaluation (few steps, no sub-plan recursion).
     #   Smart agents afford deep evaluation (full decomposition tree, adversary models).
     #   Budget applies across the full planning tick, not per call.
     #
@@ -626,12 +634,11 @@ function simulate_method(actor, method, projected_state, budget) [ENGINE, planne
     #   with reduced budget. If budget is exhausted, approximate the sub-plan with a
     #   single consider_action() call using the sub-plan's declared outcomes directly.
     returns: ActionEstimate  # compound over all steps
-    notes: this is what the planner's method selection actually runs.
-           consider_action() is the leaf primitive; simulate_method() is the aggregate.
+    notes: consider_action() is the leaf primitive; consider_plan() is the aggregate.
            drives_permit() is called per-step (hard veto) AND on the compound result
-           (ensures the method as a whole doesn't violate drive thresholds cumulatively).
+           (ensures the plan as a whole doesn't violate drive thresholds cumulatively).
            compound estimate also gates method-variant selection in needs {} —
-           a method whose simulate_method() result fails a needs threshold is
+           a method whose consider_plan() result fails a needs threshold is
            simply not selected, same as any other unmet precondition.
 }
 
