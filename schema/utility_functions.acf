@@ -516,14 +516,13 @@ function execute_action(actor, action_type, approach, target, params) [ENGINE, c
     #   1. PRE-FLIGHT
     #      — Validate needs {} against actor.worldmodel (not ground truth)
     #      — Call consider_action() [= consider_plan at depth=0] for ActionEstimate
-    #      — Call drives_permit(actor, estimate): GOAL PLAN STEPS ONLY.
-    #        If false, interrupt plan and activate the relevant agent role behavior
-    #        instead. The agent role is the shared low-level gate for all agents.
-    #        See data/verified/roles/agent.acf.
-    #        ROLE BEHAVIORS SKIP THIS CHECK. drives_permit() redirects to role
-    #        behaviors; re-checking inside them is circular and causes deadlock
-    #        (e.g. flee blocked by low stamina, agent dies unable to act).
-    #        Role behaviors are already the drives response — no gate needed.
+    #      — Call drives_permit(actor, estimate, action_priority):
+    #        action_priority = the scheduling priority of the triggering behavior
+    #        (role behavior's declared priority, or 0 for goal plan steps).
+    #        A drive veto only fires if its urgency_priority > action_priority.
+    #        flee_danger (priority 95) cannot be blocked by stamina (urgency 60).
+    #        goal plan steps (priority 0) can be blocked by all urgent drives.
+    #        See drives_permit() for the priority-weighted veto table.
     #      — Resolve effective_secrecy(actor): ONE ROLL, cached for this action tick
     #      — Compute effective_noise(actor) from cached secrecy
     #   2. ROUTE to action sub-handler (7x3 table):
@@ -627,7 +626,7 @@ function consider_plan(actor, plan_or_method, projected_state, budget) [ENGINE, 
     # Chains consider_action() calls, threading projected_state through each step:
     #   for each step in plan_or_method.steps:
     #     estimate = consider_action(actor, step, projected_state)
-    #     if drives_permit(actor, estimate) → accept step, apply estimate.goal_deltas
+    #     if drives_permit(actor, estimate, action_priority = 0) → accept step, apply estimate.goal_deltas
     #       to projected_state copy, continue
     #     else → plan fails pre-selection; return failed compound estimate
     #   compound_estimate.success_prob   = product(step.success_prob for all steps)
@@ -649,43 +648,60 @@ function consider_plan(actor, plan_or_method, projected_state, budget) [ENGINE, 
     #   single consider_action() call using the sub-plan's declared outcomes directly.
     returns: ActionEstimate  # compound over all steps
     notes: consider_action() is the leaf primitive; consider_plan() is the aggregate.
-           drives_permit() is called per-step (hard veto) AND on the compound result
-           (ensures the plan as a whole doesn't violate drive thresholds cumulatively).
+           drives_permit(action_priority=0) called per-step (hard veto) AND on the
+           compound result (ensures the plan as a whole doesn't violate thresholds
+           cumulatively). action_priority=0 because goal plans have no scheduling
+           priority — any active drive urgency can veto them.
            compound estimate also gates method-variant selection in needs {} —
            a method whose consider_plan() result fails a needs threshold is
            simply not selected, same as any other unmet precondition.
 }
 
-function drives_permit(actor, estimate) [DERIVED, core] {
-    # True if the estimate is consistent with the actor's active drive state.
-    # SCOPE: goal plan steps only. NEVER called for role behavior steps —
-    # role behaviors bypass this check (they ARE the drive response; checking
-    # permits on them is circular and deadlocks survival behaviors like flee).
+function drives_permit(actor, estimate, action_priority) [DERIVED, core] {
+    # True if the drive cost/risk of this estimate is acceptable given the
+    # action's scheduling priority.
     #
-    # Accepts both single-step ActionEstimate (from consider_action) and compound
-    # ActionEstimate (from simulate_method). Compound estimates use max(drive_impact)
-    # for danger and sum(costs) for stamina — so a method with one high-danger step
-    # fails the same as a single dangerous action.
+    # action_priority: the declared priority of the triggering behavior.
+    #   Goal plan steps have no scheduling priority → pass 0.
+    #   Role behaviors pass their declared priority (e.g. flee_danger = 95).
+    #
+    # Each veto condition has an urgency_priority derived from the agent role's
+    # threshold table (data/verified/roles/agent.acf). A veto fires only if:
+    #   veto.urgency_priority > action_priority
+    # This means high-priority actions are immune to lower-urgency drive vetoes.
+    # A goal plan step (priority 0) can be blocked by any active drive.
+    # flee_danger (priority 95) cannot be blocked by stamina (urgency 60).
+    # An agent near death can always flee — no lower drive can stop it.
+    #
+    # Veto table (condition → urgency_priority, derived from agent role):
+    #   danger_score > risk_tolerance         → urgency 95  (flee_lethal_threat)
+    #   Vitals.Health < 20                    → urgency 90  (tend_wounds_critical)
+    #   estimate.costs.stamina > Vitals.Stamina
+    #     when Drives.fatigue > 80            → urgency 60  (rest_urgent)
+    #   estimate.drive_impact.requires_aggression
+    #     AND Drives.aggression < threshold   → urgency TBD (moral/temperament drive)
+    #
+    # Soft violations (never block; insert competing behaviors in agent role):
+    #   Drives.hunger > 60  → eat_present at priority 30
+    #   Drives.thirst > 60  → drink_present at priority 35
+    #   Drives.fatigue > 60 → rest_present at priority 20
+    #   See data/verified/roles/agent.acf for the full threshold table.
+    #
+    # Accepts both single-step and compound ActionEstimate. Compound uses
+    # max(drive_impact.danger_score) and sum(costs.stamina) across all steps.
     #
     # Called by:
-    #   simulate_method() — per step AND on compound result; rejects whole method early
-    #   execute_action pre-flight — final check before leaf step fires (goal plans only)
-    #
-    # Hard vetoes (return false, plan interrupted, agent role behavior activated):
-    #   estimate.drive_impact.danger_score > actor.Drives.risk_tolerance
-    #   estimate.costs.stamina > actor.Vitals.Stamina
-    #   estimate.drive_impact.requires_aggression AND actor.Drives.aggression < threshold
-    #
-    # Soft drive violations (don't block but trigger competing behaviors in agent role):
-    #   actor.Drives.hunger > 80 → eat behavior inserted at priority 70
-    #   actor.Drives.fatigue > 80 → rest behavior inserted at priority 60
-    #   See data/verified/roles/agent.acf for complete threshold table.
+    #   consider_plan() — per step and on compound (uses action_priority = 0)
+    #   execute_action pre-flight — final gate before any leaf step fires,
+    #     passing the triggering behavior's declared priority
     #
     # Hard veto = engine interrupts current plan, activates agent role behavior.
-    # Soft veto = agent role behavior competes at elevated priority next tick.
+    # Soft violation = agent role behavior competes at elevated priority next tick.
     returns: bool
-    notes: specialised roles may tighten or loosen thresholds by overriding
-           the relevant agent role behaviors. e.g. soldier role raises risk_tolerance.
+    notes: specialised roles shift veto urgency by overriding agent role behaviors
+           with different priorities. e.g. soldier role sets rest_urgent priority = 25,
+           so fatigue can only veto actions with action_priority < 25. Soldiers
+           push through exhaustion that would stop a civilian.
 }
 
 function execute_move(actor, approach, target, params, secrecy_roll) [ENGINE, core] {
