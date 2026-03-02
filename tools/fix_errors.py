@@ -27,11 +27,15 @@ You are an expert in the AdventureCraft Format (.acf). Fix validation \
 errors in .acf files and return the corrected file.
 
 Key rules:
-- Every `do` line MUST have a `name:` prefix (e.g. `step: do Move.Direct { ... }`)
+- Two valid step forms ONLY:
+    name: do Action.Approach { params }   — actor performs an action
+    name: wait <condition>                — actor blocks until condition is true
+  There is NO `expect` keyword. Replace any `expect` with `wait`.
+- Every step MUST have a name prefix: `name: do ...` or `name: wait ...`
 - ALL_CAPS labels only when referenced by `fail =`
 - Tags are bare identifiers in `[]`, no quotes
 - Approaches are Direct, Indirect, Structured only (NOT Careful, Cautious, etc.)
-- Plans use `needs { }` and `outcomes { }` — NOT `precond`, `done`, or `estimates`
+- Plans use `needs { }` and `outcomes { }` — NOT `precond`, `done`, `when`, or `estimates`
 - `prob` must be bounded 0..1; use a resolution function (sigmoid) or a literal in 0..1
 - Authority and reputation are DERIVED from relationships — never stored as attributes
 - Counter blocks: ONLY observable state (pos, weight, faction, garrison, equipped, \
