@@ -73,12 +73,21 @@ function resolve_conflict(actor_strength, opponent_strength, situational) [RESOL
 }
 
 function detection_risk(actor, observers) [RESOLUTION, core] {
-    # Probability that actor is detected during current action.
+    # Direct, real-time detection: observer perceives actor in the moment (sync path).
+    # actor_strength IS effective_secrecy(actor) — the resolved, always-on stealth presence.
+    # effective_secrecy already incorporates skill + modifier + equipment + location concealment.
+    # Async detection (observer finds evidence after actor departed) uses observation_chance().
     # Used in plan outcomes: visible(self, X), prob = detection_risk(self, X)
     returns: float
-    actor_strength: actor.Skills.stealth + actor.equipment.stealth_bonus
+    actor_strength:    effective_secrecy(actor)
     opponent_strength: observers.Skills.observation
-    situational: Lighting.concealment, Noise, distance(actor, observers)
+                     + observers.modifier.awareness * 20
+                     + observers.equipment.observation_bonus
+                     + observers.equipment.light_bonus * 8
+    situational:     + effective_noise(actor) * 0.3
+                     - distance(actor, observers) * 0.5
+                     - location.ambient_noise * 3
+                     + location.crowd_density * 2
     resolution: sigmoid(opponent_strength - actor_strength + situational)
     rule: data/verified/rules/detection.acf
 }
@@ -87,28 +96,47 @@ function persuasion_chance(actor, target) [RESOLUTION, core] {
     # Probability that Influence.Direct (honest appeal) succeeds.
     # Used in plan outcomes: $target.willing($intent), prob = persuasion_chance(self, $target)
     returns: float
-    actor_strength: actor.Skills.persuasion + edge(actor, target, familiarity) * 20
-    opponent_strength: target.resistance
-    situational: leverage_bonus, reputation_bonus
+    actor_strength:    actor.Skills.persuasion
+                     + actor.modifier.focus * 15
+                     + edge(actor, target, familiarity) * 20
+                     + actor.reputation.standing * 8
+    opponent_strength: target.Drives.independence * 10
+                     + target.Drives.suspicion * 5
+    situational:     + leverage_bonus * 15
+                     - actor.modifier.speed * 10
+                     + setting.privacy * 5
     resolution: sigmoid(actor_strength - opponent_strength + situational)
 }
 
 function deception_chance(actor, target) [RESOLUTION, core] {
     # Probability that Influence.Indirect (deception) succeeds.
-    # Note: familiarity works AGAINST deceiver (harder to fool someone who knows you).
+    # Familiarity works AGAINST deceiver — harder to fool someone who knows you.
     returns: float
-    actor_strength: actor.Skills.deception
-    opponent_strength: target.Skills.observation + edge(target, actor, familiarity) * 10
-    situational: plausibility_bonus, prior_deception_penalty
+    actor_strength:    actor.Skills.deception
+                     + actor.modifier.focus * 20
+                     + actor.equipment.disguise_quality * 8
+                     + cover.plausibility * 10
+    opponent_strength: target.Skills.observation
+                     + target.modifier.awareness * 20
+                     + edge(target, actor, familiarity) * 25
+    situational:     - prior_deception_penalty * 15
+                     - actor.modifier.speed * 10
     resolution: sigmoid(actor_strength - opponent_strength + situational)
 }
 
 function intimidation_chance(actor, target) [RESOLUTION, core] {
     # Probability that threat/coercion succeeds.
     returns: float
-    actor_strength: actor.combat_power + actor.reputation.fear * 10
-    opponent_strength: target.courage * 10 + target.combat_power * 0.5
-    situational: weapon_display_bonus, allies_present_bonus
+    actor_strength:    actor.Skills.intimidation
+                     + actor.combat_power * 0.5
+                     + actor.reputation.fear * 10
+                     + actor.modifier.focus * 10
+    opponent_strength: target.Skills.composure
+                     + target.Drives.courage * 10
+                     + target.combat_power * 0.3
+    situational:     + weapon_display_bonus * 15
+                     + count(actor.allies_present) * 5
+                     - count(target.allies_present) * 5
     resolution: sigmoid(actor_strength - opponent_strength + situational)
 }
 
@@ -116,36 +144,60 @@ function combat_chance(attacker, defender) [RESOLUTION, core] {
     # Probability that an attack lands and deals damage.
     # Melee and ranged resolved by same function with different inputs.
     returns: float
-    actor_strength: attacker.Skills.melee + attacker.equipment.weapon.damage
-    opponent_strength: defender.Skills.active_defense + defender.equipment.armor.protection
-    situational: terrain_advantage, surprise_bonus, fatigue_penalty
+    actor_strength:    attacker.Skills.melee
+                     + attacker.modifier.speed * 15
+                     + attacker.modifier.focus * 10
+                     + attacker.equipment.weapon.damage
+                     + terrain_advantage * 5
+    opponent_strength: defender.Skills.active_defense
+                     + defender.modifier.awareness * 15
+                     + defender.equipment.armor.protection
+    situational:     + surprise_bonus * 20
+                     - attacker.Vitals.Stamina < 20 ? fatigue_penalty * 10 : 0
+                     + elevation_bonus * 5
     resolution: sigmoid(actor_strength - opponent_strength + situational)
 }
 
 function lockpick_chance(actor, lock) [RESOLUTION, planned] {
     # Probability of defeating a lock without the key.
     returns: float
-    actor_strength: actor.Skills.lockpicking + actor.equipment.lockpicks.quality
+    actor_strength:    actor.Skills.lockpicking
+                     + actor.modifier.focus * 25
+                     + actor.equipment.lockpicks.quality * 10
+                     + location.Lighting.visibility * 3
     opponent_strength: lock.difficulty
-    situational: time_pressure_penalty, lighting_bonus
+    situational:     - actor.modifier.speed * 15
+                     - actor.Vitals.Stamina < 20 ? 10 : 0
     resolution: sigmoid(actor_strength - opponent_strength + situational)
 }
 
 function craft_chance(actor, recipe) [RESOLUTION, planned] {
     # Probability of successfully crafting/forging/repairing an item.
     returns: float
-    actor_strength: actor.Skills.crafting + actor.equipment.tools.quality
+    actor_strength:    actor.Skills.crafting
+                     + actor.modifier.focus * 25
+                     + actor.equipment.tools.quality * 10
+                     + workspace.quality * 8
     opponent_strength: recipe.difficulty
-    situational: workspace_bonus, materials_quality
+    situational:     - actor.modifier.speed * 20
+                     + recipe.materials.quality * 5
     resolution: sigmoid(actor_strength - opponent_strength + situational)
 }
 
 function observation_chance(actor, target) [RESOLUTION, core] {
-    # Probability of noticing or learning something through observation.
+    # Probability of noticing something — live actor, object, or evidence item.
+    # When target IS an EvidenceItem: target.concealment = (1 - target.Decayable.quality) * env.concealment.
+    # As evidence decays its quality falls, concealment rises, and it becomes harder to spot.
+    # Used by evidence.acf for the async detection path: observer finds evidence after actor has left.
     returns: float
-    actor_strength: actor.Skills.observation
-    opponent_strength: target.concealment + target.obscurity
-    situational: distance_penalty, lighting_bonus, time_spent_bonus
+    actor_strength:    actor.Skills.observation
+                     + actor.modifier.awareness * 20
+                     + actor.equipment.optics_bonus
+                     + actor.equipment.light_bonus * 5
+    opponent_strength: target.concealment
+                     + target.obscurity
+    situational:     - distance(actor, target) * 0.3
+                     + time_spent_observing * 2
     resolution: sigmoid(actor_strength - opponent_strength + situational)
 }
 
@@ -153,18 +205,32 @@ function trade_advantage(buyer, seller) [RESOLUTION, planned] {
     # How far the final price shifts from fair value.
     # Returns a multiplier: < 1.0 favors buyer, > 1.0 favors seller.
     returns: float
-    actor_strength: buyer.Skills.trade + buyer.knowledge_of_price
-    opponent_strength: seller.Skills.trade + seller.knowledge_of_price
-    situational: scarcity_premium, competition_discount, urgency_penalty
+    actor_strength:    buyer.Skills.trade
+                     + buyer.modifier.focus * 15
+                     + buyer.knows(price_of($item, $market)) ? 15 : 0
+                     + count(buyer.inventory.alternatives) * 5
+    opponent_strength: seller.Skills.trade
+                     + seller.modifier.focus * 15
+                     + seller.knows(price_of($item, $market)) ? 15 : 0
+    situational:     + scarcity_premium * 10
+                     - competition_discount * 8
+                     - buyer.modifier.speed * 20
     resolution: sigmoid(opponent_strength - actor_strength + situational)
 }
 
 function chase_chance(pursuer, runner) [RESOLUTION, planned] {
     # Probability that pursuer catches runner (or runner escapes).
     returns: float
-    actor_strength: runner.Movement.Speed + runner.Vitals.Stamina * 0.01
-    opponent_strength: pursuer.Movement.Speed + pursuer.Vitals.Stamina * 0.01
-    situational: terrain_familiarity, crowd_density, head_start
+    actor_strength:    runner.Movement.Speed
+                     + runner.modifier.speed * 25
+                     + runner.Vitals.Stamina * 0.05
+                     + terrain.runner_familiarity * 8
+    opponent_strength: pursuer.Movement.Speed
+                     + pursuer.modifier.speed * 25
+                     + pursuer.Vitals.Stamina * 0.05
+    situational:     + head_start * 10
+                     + location.crowd_density * 5
+                     - terrain.open * 5
     resolution: sigmoid(actor_strength - opponent_strength + situational)
 }
 
@@ -207,12 +273,15 @@ function identification_risk(actor, observer) [RESOLUTION, planned] {
     # Probability that observer identifies actor (knows WHO, not just THAT).
     # Perceptual — brain recognizes face or doesn't. Not a choice.
     # Distinct from detection_risk: you can be spotted but not recognized.
-    # Disguise, darkness, distance reduce identification. Familiarity increases it.
     # Chains from detection_risk; moot if actor was not detected.
     returns: float
-    actor_strength: actor.equipment.disguise_quality + actor.Skills.deception * 0.3
-    opponent_strength: edge(observer, actor, familiarity) * 30 + observer.Skills.observation * 0.5
-    situational: Lighting.visibility, distance(actor, observer)
+    actor_strength:    actor.equipment.disguise_quality * 12
+                     + actor.modifier.stealth * 10
+                     + distance(actor, observer) * 0.3
+    opponent_strength: edge(observer, actor, familiarity) * 30
+                     + observer.Skills.observation * 0.5
+                     + observer.modifier.awareness * 10
+    situational:     - location.Lighting.visibility * 5
     resolution: sigmoid(opponent_strength - actor_strength + situational)
     notes: familiarity dominates — hard to fool someone who knows your face
 }
@@ -222,35 +291,49 @@ function capture_risk(captors, target) [RESOLUTION, planned] {
     # Physical contest — numbers, combat power, terrain, endurance.
     # Presupposes the adversary has CHOSEN to pursue (behavioral link).
     returns: float
-    actor_strength: sum(captors.combat_power) + count(captors) * 3
-    opponent_strength: target.combat_power + target.Skills.active_defense + target.Vitals.Stamina * 0.05
-    situational: terrain.defensibility, target.equipment.escape_tools
+    actor_strength:    sum(captors.combat_power)
+                     + count(captors) * 3
+                     + max(captors.modifier.speed) * 10
+    opponent_strength: target.combat_power
+                     + target.Skills.active_defense
+                     + target.modifier.speed * 15
+                     + target.Vitals.Stamina * 0.05
+    situational:     + terrain.defensibility * 5
+                     + target.equipment.escape_tools * 8
     resolution: sigmoid(actor_strength - opponent_strength + situational)
 }
 
 function evidence_risk(actor, location) [RESOLUTION, planned] {
-    # Probability that actor leaves detectable evidence at location.
-    # Physical — footprints, tool marks, biological traces. Not a choice.
-    # Long-term risk: persists after actor leaves. Decays with time and weather.
-    # The cover_tracks plan reduces this after the fact.
+    # Probability that a physical action leaves persistent evidence at location.
+    # Resolves against effective_secrecy (actor side) — the same property used
+    # for direct detection. Higher effective_secrecy = less evidence generated.
+    # Used in evidence.acf to gate persistent evidence item creation.
     returns: float
-    actor_strength: actor.Skills.stealth * 0.5 + actor.equipment.gloves + actor.caution
-    opponent_strength: location.surface.track_retention + location.security.forensic_level
-    situational: weather.evidence_decay, time_spent_at_location * 0.1
+    actor_strength:    effective_secrecy(actor)
+                     + actor.equipment.gloves * 8
+    opponent_strength: location.surface.track_retention
+                     + location.security.forensic_level * 10
+    situational:     + actor.modifier.speed * 12
+                     + action.physical_contact * 8
+                     - weather.evidence_decay * 5
     resolution: sigmoid(opponent_strength - actor_strength + situational)
 }
 
-function attribution_risk(investigator, suspect) [RESOLUTION, planned] {
-    # Probability that investigator links existing evidence to suspect.
-    # Skill check — given the investigator HAS CHOSEN to investigate
-    # (behavioral link), can they connect the dots?
-    # Requires evidence to exist (chained from evidence_risk).
+function attribution_risk(investigator, evidence_item) [RESOLUTION, planned] {
+    # Probability that investigator links a found evidence item to a specific actor.
+    # Skill check — given investigator HAS CHOSEN to investigate (behavioral link).
+    # Chains from observation_chance: evidence must be found before it is attributed.
     returns: float
-    actor_strength: investigator.Skills.tracking + investigator.Skills.research
-    opponent_strength: suspect.cover_tracks_quality + suspect.alibi_quality
-    situational: evidence.quality, witness_count, time_since_crime
+    actor_strength:    investigator.Skills.tracking
+                     + investigator.Skills.research
+                     + investigator.modifier.focus * 15
+    opponent_strength: evidence_item.EvidenceOf.cover_quality
+                     + evidence_item.EvidenceOf.actor.alibi_quality
+    situational:     + evidence_item.Decayable.quality * 10
+                     + witness_count * 5
+                     - time_since(evidence_item.EvidenceOf.timestamp) * 0.5
     resolution: sigmoid(actor_strength - opponent_strength + situational)
-    notes: time decay favors the suspect; old evidence harder to attribute
+    notes: time decay favors the suspect — old evidence is harder to attribute
 }
 
 # ── KNOWLEDGE: worldmodel queries ────────────────────────────────
@@ -392,6 +475,143 @@ function suspected(subject, plan_id) [KNOWLEDGE, candidate] {
 # Where these reference spatial state (co_located, distance), the
 # agent's belief state is checked — not world truth. At execution
 # time the engine validates against world truth; mismatch = plan failure.
+
+function effective_secrecy(actor) [ENGINE, core] {
+    # Resolved stealth output for the actor's current action. World state property.
+    # ROLLED ONCE PER ACTION by the engine — the same value is then held for the
+    # full duration of that action's resolution window. Multiple observers and
+    # all evidence generation reference this cached value, not independent rolls.
+    # Applies during ALL actions including idle (idle has noise_class = 0 but
+    # still produces breathing/footstep baseline and can be detected).
+    # The central value that both detection paths resolve against:
+    #   direct detection:   detection_risk() uses it as actor_strength
+    #   evidence quality:   ephemeral and persistent item quality scales with it
+    #   evidence_risk():    uses it as actor_strength
+    # Stealth modifier from stance/equipment/situation flows here, not into each check.
+    returns: float
+    base:        actor.Skills.stealth
+               + actor.modifier.stealth * 20
+               + actor.equipment.stealth_bonus
+    situational: + location.Lighting.concealment * 10
+               + location.cover * 5
+    random:      roll(variance = actor.Skills.stealth * 0.3)
+    notes: higher skill narrows the variance — experts perform consistently,
+           novices get lucky or blow their cover unpredictably
+}
+
+function execute_action(actor, action_type, approach, target, params) [ENGINE, core] {
+    # Single entry point for all action execution. Called by the engine when a plan
+    # step resolves. Cross-cutting concerns are applied here before routing to the
+    # action-type sub-handler. Sub-handlers return world state delta; this function
+    # commits the delta and runs post-action effects.
+    #
+    # Pipeline (in order):
+    #   1. PRE-FLIGHT
+    #      — Validate needs {} against current world state
+    #      — Resolve effective_secrecy(actor): ONE ROLL, cached for this action tick
+    #      — Compute effective_noise(actor) from cached secrecy
+    #   2. ROUTE to action sub-handler (7x3 table):
+    #      — execute_move(actor, approach, target, params, secrecy_roll)
+    #      — execute_modify(actor, approach, target, params, secrecy_roll)
+    #      — execute_attack(actor, approach, target, params, secrecy_roll)
+    #      — execute_defense(actor, approach, target, params, secrecy_roll)
+    #      — execute_transfer(actor, approach, target, params, secrecy_roll)
+    #      — execute_influence(actor, approach, target, params, secrecy_roll)
+    #      — execute_sense(actor, approach, target, params, secrecy_roll)
+    #      Sub-handlers receive the resolved secrecy_roll, not the formula.
+    #      They use it in any internal resolution (e.g., combat_chance, lockpick_chance).
+    #   3. POST-ACTION (applied regardless of sub-handler outcome):
+    #      — generate_evidence(actor, action, location) using cached secrecy_roll
+    #      — Run detection_risk(actor, observer) for each co-located observer
+    #      — Apply world state delta from sub-handler
+    #      — Apply costs: time += action.duration, Vitals.Stamina -= action.exertion
+    #      — Update sim history (ground truth, replayable)
+    returns: world_state_delta
+    notes: secrecy_roll is the single authoritative effective_secrecy value for this tick.
+           All resolution within the action — sub-handler, evidence, detection — reads it.
+           This ensures one action produces one coherent stealth performance.
+}
+
+function execute_move(actor, approach, target, params, secrecy_roll) [ENGINE, core] {
+    # Sub-handler for Move.{Direct, Indirect, Structured}.
+    # Approach determines movement mode: Direct=athletics, Indirect=riding, Structured=travel.
+    # Applies: position update, terrain costs, chase resolution if pursued.
+    returns: world_state_delta
+}
+
+function execute_modify(actor, approach, target, params, secrecy_roll) [ENGINE, core] {
+    # Sub-handler for Modify.{Direct, Indirect, Structured}.
+    # Approach: Direct=operate, Indirect=equipment use, Structured=crafting.
+    # Resolves: craft_chance or lockpick_chance if applicable.
+    returns: world_state_delta
+}
+
+function execute_attack(actor, approach, target, params, secrecy_roll) [ENGINE, core] {
+    # Sub-handler for Attack.{Direct, Indirect, Structured}.
+    # Approach: Direct=melee, Indirect=ranged, Structured=traps.
+    # Resolves: combat_chance against defender.
+    returns: world_state_delta
+}
+
+function execute_defense(actor, approach, target, params, secrecy_roll) [ENGINE, core] {
+    # Sub-handler for Defense.{Direct, Indirect, Structured}.
+    # Approach: Direct=active_defense, Indirect=armor, Structured=tactics.
+    returns: world_state_delta
+}
+
+function execute_transfer(actor, approach, target, params, secrecy_roll) [ENGINE, core] {
+    # Sub-handler for Transfer.{Direct, Indirect, Structured}.
+    # Approach: Direct=gathering, Indirect=trade, Structured=administration.
+    # Resolves: trade_advantage if Indirect; ownership edge updates.
+    returns: world_state_delta
+}
+
+function execute_influence(actor, approach, target, params, secrecy_roll) [ENGINE, core] {
+    # Sub-handler for Influence.{Direct, Indirect, Structured}.
+    # Approach: Direct=persuasion, Indirect=deception, Structured=intrigue.
+    # Resolves: persuasion_chance, deception_chance, or intimidation_chance.
+    returns: world_state_delta
+}
+
+function execute_sense(actor, approach, target, params, secrecy_roll) [ENGINE, core] {
+    # Sub-handler for Sense.{Direct, Indirect, Structured}.
+    # Approach: Direct=search, Indirect=observation, Structured=research.
+    # Resolves: observation_chance against target or evidence items in range.
+    returns: world_state_delta
+}
+
+function generate_evidence(actor, action, location) [ENGINE, core] {
+    # Called automatically by the engine after every action completes — including idle.
+    # Plans do NOT declare this; it is unconditional and transparent to the plan layer.
+    # Produces evidence items in the world that observers may sense asynchronously.
+    # Evidence quality scales with effective_secrecy(actor) from the SAME roll that
+    # resolved direct detection — one roll determines both how visible you are and
+    # how much trace you leave.
+    #
+    # Two evidence tiers produced:
+    #   Ephemeral — noise trail, heat, disturbance. High decay rate. Cleared in minutes.
+    #               Triggered by any action (idle has a minimal floor).
+    #   Persistent — tracks, tool marks, biological trace. Low decay rate. Hours to days.
+    #               Triggered only when action.physical_contact > 0. Gated by evidence_risk().
+    #
+    # Evidence items carry: subtype, quality, location, actor_ref, timestamp, Decayable.rate.
+    # actor_ref is raw world truth — it is filtered by observer worldmodel on sensing.
+    # See data/verified/rules/evidence.acf for sensing and attribution rules.
+    returns: [EphemeralEvidence?, PersistentEvidence?]
+    notes: effective_secrecy(actor) is already resolved for this action tick;
+           generate_evidence reads the cached value, no second roll.
+}
+
+function effective_noise(actor) [DERIVED, core] {
+    # Acoustic and kinetic signature of the actor's current action.
+    # Attenuated by effective_secrecy — a skilled, careful actor produces less noise
+    # for the same physical action. Idle noise floor is always non-zero (breathing, heartbeat).
+    # Used by the hear_noise trigger in detection.acf.
+    returns: float
+    resolves_to: max(action.noise_class, 0.05)
+               * max(0, 1.0 - actor.modifier.stealth * 0.4)
+               * max(0, 1.0 - actor.equipment.soft_soles * 0.2)
+}
 
 function accessible(self, node) [DERIVED, core] {
     # Can self interact with node right now (from agent's belief state)

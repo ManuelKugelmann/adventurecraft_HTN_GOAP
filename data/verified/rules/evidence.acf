@@ -1,0 +1,120 @@
+rule evidence [physics, L0] {
+
+    # ── Async detection pipeline ──────────────────────────────────────
+    #
+    # generate_evidence(actor, action, location) is called automatically by the engine
+    # after every action. It creates evidence items as world objects. This rule covers
+    # the rest of the async path: how items decay and how observers sense them.
+    #
+    # Evidence items carry these traits:
+    #   Physical {}           — exists in the world, can be destroyed
+    #   Decayable {           — fades over time
+    #       rate  = float,    — fraction lost per tick (weather, surface, subtype)
+    #       quality = float   — current signal strength; starts at generated value
+    #   }
+    #   EvidenceOf {          — forensic metadata
+    #       subtype = token,  — noise | heat | disturbance | tracks | tool_marks | biological
+    #       action_type = token,
+    #       actor_ref = node, — world truth; filtered by observer worldmodel on sensing
+    #       location = node,
+    #       timestamp = int
+    #   }
+    #
+    # Evidence quality encodes both signal strength and concealment:
+    #   quality = 1.0  → fresh, easy to sense
+    #   quality → 0.0  → faded, barely detectable
+    # observation_chance() target.concealment uses (1 - quality) * env.concealment.
+    #
+    # Two tiers produced by generate_evidence():
+    #   Ephemeral  — noise trail, heat, disturbance, scent. Decay rate = high (minutes).
+    #   Persistent — tracks, tool marks, biological trace. Decay rate = low (hours/days).
+    #
+    # Evidence quality at generation time = scaled by effective_secrecy(actor) from the
+    # same roll used for direct detection. One roll, two paths.
+
+    # ── Ephemeral evidence — quality formula reference ────────────────
+    # Listed here as documentation; creation is handled by generate_evidence().
+    # quality = action.noise_class * max(0, 1.0 - effective_secrecy($actor) * 0.02)
+    # decay_rate = 0.8 * (1 + $location.ambient_noise * 0.3)
+    # subtypes: noise, heat, disturbance
+    # trigger: any action (idle has noise_class = 0.05 floor)
+
+    # ── Persistent evidence — quality formula reference ───────────────
+    # Listed here as documentation; creation is gated by evidence_risk() in engine.
+    # quality = action.physical_contact * max(0, 1.0 - effective_secrecy($actor) * 0.02)
+    # decay_rate: tracks = 0.05 * weather.decay_modifier
+    #             tool_marks = 0.02 (inorganic, slow)
+    #             biological = 0.1 * weather.decay_modifier (rain accelerates)
+    # trigger: action.physical_contact > 0, prob = evidence_risk($actor, $location)
+
+    # ── Natural decay ─────────────────────────────────────────────────
+    # Evidence items use the standard Decayable trait rule (L0 physics).
+    # When quality drops to 0 the item is Destroyed automatically.
+    # cover_tracks plan (Modify.Direct) can accelerate decay or Destroy directly.
+    # Rain, fire, and other L0 rules interact through normal Decayable mechanics.
+
+    # ── Evidence sensing (async detection) ───────────────────────────
+    # Observer co-located with an evidence item may sense it.
+    # Uses observation_chance(observer, evidence_item) where:
+    #   target.concealment = (1 - evidence_item.Decayable.quality) * env.concealment
+    # On success: worldmodel gains performed($unknown, action_type, params).
+    # actor_ref is NOT revealed by sensing alone — attribution is a separate check.
+
+    sense_ephemeral: when co_located(observer, $evidence.location)
+                         AND $evidence.has(EvidenceOf)
+                         AND $evidence.EvidenceOf.subtype IN [noise, heat, disturbance]
+                         AND $evidence.Decayable.quality > 0,
+                     prob = observation_chance(observer, $evidence),
+                     effect: observer.worldmodel.gains(
+                         performed($unknown, $evidence.EvidenceOf.action_type, {
+                             location = $evidence.location,
+                             timestamp = $evidence.EvidenceOf.timestamp,
+                             subtype = $evidence.EvidenceOf.subtype
+                         })
+                     )
+
+    sense_persistent: when co_located(observer, $evidence.location)
+                          AND $evidence.has(EvidenceOf)
+                          AND $evidence.EvidenceOf.subtype IN [tracks, tool_marks, biological]
+                          AND $evidence.Decayable.quality > 0,
+                      prob = observation_chance(observer, $evidence),
+                      effect: observer.worldmodel.gains(
+                          performed($unknown, $evidence.EvidenceOf.action_type, {
+                              location = $evidence.location,
+                              timestamp = $evidence.EvidenceOf.timestamp,
+                              subtype = $evidence.EvidenceOf.subtype,
+                              quality = $evidence.Decayable.quality
+                          })
+                      )
+
+    # ── Attribution ───────────────────────────────────────────────────
+    # Links a found evidence item to a specific actor.
+    # Requires the evidence to have been sensed first (chained).
+    # Uses attribution_risk(investigator, evidence_item).
+    # On success: worldmodel override updated with actor identity and confidence.
+    # This IS the ESTIMATE/SIMULATE split — investigator may have wrong actor.
+
+    attribute_evidence: when observer.worldmodel.contains(
+                                performed($unknown, $action_type, {
+                                    location = $evidence.EvidenceOf.location
+                                })
+                            )
+                            AND $evidence.has(EvidenceOf)
+                            AND $evidence.Decayable.quality > 0.2,
+                        prob = attribution_risk(observer, $evidence),
+                        effect: observer.worldmodel.gains(
+                            performed($suspect, $action_type, {
+                                location = $evidence.EvidenceOf.location,
+                                timestamp = $evidence.EvidenceOf.timestamp,
+                                confidence = attribution_risk(observer, $evidence)
+                            })
+                        )
+
+}
+
+_provenance {
+    sources = [{ type = design_pattern, id = async_evidence_detection, confidence = 0.9 }]
+    model = seed
+    verified = false
+    reviewer = pending
+}
