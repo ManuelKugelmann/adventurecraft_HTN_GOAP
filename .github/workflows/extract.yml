@@ -100,39 +100,81 @@ jobs:
             --source ${{ steps.params.outputs.source }} \
             --batch ${{ steps.params.outputs.batch }}
 
-      - name: Validate extracted data
-        run: python tools/validate.py data/raw/
+      - name: Validate and auto-fix (up to 5 retries per file)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        # Exit 1 means some files landed in failed/ heap — not a job failure.
+        # Those files are committed in the PR for human review.
+        continue-on-error: true
+        run: |
+          python tools/fix_errors.py \
+            data/raw/${{ steps.params.outputs.source }}/ \
+            --retries 5
+
+      - name: Validate (final gate — excludes failed/ heap)
+        run: |
+          SOURCE="${{ steps.params.outputs.source }}"
+          # Only validate top-level .acf files; skip the failed/ subdir.
+          VALID=$(find data/raw/${SOURCE} -maxdepth 1 -name "*.acf" 2>/dev/null | sort)
+          if [ -z "$VALID" ]; then
+            echo "No valid .acf files to validate — nothing to commit."
+            exit 0
+          fi
+          python tools/validate.py $VALID
+
+      - name: Ensure extraction label exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create "extraction" \
+            --color "#0075ca" \
+            --description "Automated extraction PR" \
+            2>/dev/null || true
 
       - name: Create PR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          BRANCH="extract/${{ steps.params.outputs.source }}-$(date +%Y%m%d)"
+          SOURCE="${{ steps.params.outputs.source }}"
+          BATCH="${{ steps.params.outputs.batch }}"
+          BRANCH="extract/${SOURCE}-$(date +%Y%m%d)"
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
           git checkout -b "$BRANCH"
           git add data/raw/
 
-          # Count new files
-          NEW=$(git diff --cached --name-only | wc -l)
-          if [ "$NEW" -eq 0 ]; then
+          NEW=$(git diff --cached --name-only -- 'data/raw/*.acf' 'data/raw/**/*.acf' | grep -v '/failed/' | wc -l)
+          FAILED=$(git diff --cached --name-only -- 'data/raw/*/failed/*.acf' | wc -l)
+
+          if [ "$NEW" -eq 0 ] && [ "$FAILED" -eq 0 ]; then
             echo "No new files extracted. Skipping PR."
             exit 0
           fi
 
-          git commit -m "data: extract $NEW items from ${{ steps.params.outputs.source }}
+          git commit -m "$(cat <<EOF
+data: extract ${NEW} items from ${SOURCE} (${FAILED} in failed heap)
 
-          Source: ${{ steps.params.outputs.source }}
-          Batch: ${{ steps.params.outputs.batch }}
-          Files: $NEW new .acf files"
+Source: ${SOURCE}
+Batch: ${BATCH}
+Valid: ${NEW} new .acf files
+Failed heap: ${FAILED} files needing manual review
+EOF
+)"
 
-          git push origin "$BRANCH"
+          git push -u origin "$BRANCH"
 
           gh pr create \
-            --title "Extract: ${{ steps.params.outputs.source }} $(date +%Y-%m-%d)" \
-            --body "Automated extraction from ${{ steps.params.outputs.source }}.
+            --title "Extract: ${SOURCE} $(date +%Y-%m-%d)" \
+            --body "$(cat <<EOF
+Automated extraction from \`${SOURCE}\`.
 
-          **New files:** $NEW
-          **Validation:** passed
+**Valid files:** ${NEW}
+**Failed heap (\`failed/\`):** ${FAILED} — could not be auto-fixed after 5 retries; needs manual review or re-extraction
+**Validation:** passed for valid files
 
-          Review and merge to move to verification queue." \
-            --label extraction \
-            --label ${{ steps.params.outputs.source }}
+Review and merge to move to verification queue.
+EOF
+)" \
+            --label extraction

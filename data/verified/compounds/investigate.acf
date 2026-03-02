@@ -5,9 +5,9 @@ plan investigate [information, reusable] {
     }
 
     survey: do Sense.Indirect { target = $target }
-        prob = sigmoid(self.skills.observation - $target.modifier.stealth * 50)
+        prob = observation_chance(self, $target)
     dig:    do Sense.Structured { target = $target.secrets }
-        prob = sigmoid(self.skills.research - $target.secrets.obscurity * 50)
+        prob = observation_chance(self, $target.secrets)
     verify: do Sense.Direct { target = $evidence }
 
     done { self.knowledge.contains($target.secrets) }

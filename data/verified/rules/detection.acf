@@ -8,29 +8,28 @@ rule detection [social, L3] {
     spot_by_guard: when observer.role == guard
                        AND co_located(observer, $actor.location)
                        AND NOT concealed($actor),
-                   prob = sigmoid(observer.Skills.observation
-                                  - $actor.Skills.stealth
-                                  - $actor.equipment.stealth_bonus
-                                  + $action.noise * 0.5
-                                  - $location.Lighting.concealment * 0.3),
+                   prob = resolve_conflict(
+                       observer.Skills.observation,
+                       $actor.Skills.stealth + $actor.equipment.stealth_bonus,
+                       $action.noise * 0.5 - $location.Lighting.concealment * 0.3),
                    effect: visible($actor, observer)
 
     spot_by_nearby: when co_located(observer, $actor.location)
                         AND NOT concealed($actor)
                         AND observer != $actor,
-                    prob = sigmoid(observer.Skills.observation * 0.5
-                                   - $actor.Skills.stealth
-                                   - $actor.equipment.stealth_bonus
-                                   + $action.noise * 0.3
-                                   - $location.Lighting.concealment * 0.3)
-                                   * 0.5,
+                    prob = resolve_conflict(
+                        observer.Skills.observation * 0.5,
+                        $actor.Skills.stealth + $actor.equipment.stealth_bonus,
+                        $action.noise * 0.3 - $location.Lighting.concealment * 0.3)
+                        * 0.5,
                     effect: visible($actor, observer)
 
     hear_noise: when distance(observer, $actor) < $action.noise * 10
                     AND observer.Skills.observation > 5,
-                prob = sigmoid($action.noise * 0.3
-                               - distance(observer, $actor) * 0.1
-                               - $location.ambient_noise * 0.2),
+                prob = resolve_conflict(
+                    $action.noise * 0.3,
+                    distance(observer, $actor) * 0.1 + $location.ambient_noise * 0.2,
+                    0),
                 effect: observer.alert = true
 
     # ── Identification (chained from detection) ──────────────────
@@ -40,18 +39,18 @@ rule detection [social, L3] {
 
     identify_known: when visible($actor, observer)
                         AND edge(observer, $actor, familiarity) > 0.3,
-                    prob = sigmoid(edge(observer, $actor, familiarity) * 30
-                                   + observer.Skills.observation * 0.5
-                                   - $actor.equipment.disguise_quality
-                                   - distance(observer, $actor) * 0.1),
+                    prob = resolve_conflict(
+                        edge(observer, $actor, familiarity) * 30 + observer.Skills.observation * 0.5,
+                        $actor.equipment.disguise_quality + distance(observer, $actor) * 0.1,
+                        0),
                     effect: observer.knows(identity_of($actor))
 
     identify_disguised: when visible($actor, observer)
                             AND $actor.has(Disguised),
-                        prob = sigmoid(observer.Skills.observation
-                                       - $actor.Skills.deception
-                                       - $actor.equipment.disguise_quality
-                                       + edge(observer, $actor, familiarity) * 20),
+                        prob = resolve_conflict(
+                            observer.Skills.observation + edge(observer, $actor, familiarity) * 20,
+                            $actor.Skills.deception + $actor.equipment.disguise_quality,
+                            0),
                         effect: observer.knows(identity_of($actor))
 
     # ── Evidence (long-term detection) ───────────────────────────
@@ -63,10 +62,10 @@ rule detection [social, L3] {
 
     evidence_left: when $actor.action.completed
                        AND $action.physical_contact > 0,
-                   prob = sigmoid($location.surface.track_retention
-                                  - $actor.Skills.stealth * 0.5
-                                  - $actor.equipment.gloves * 0.3
-                                  + $action.physical_contact * 0.5),
+                   prob = resolve_conflict(
+                       $location.surface.track_retention + $action.physical_contact * 0.5,
+                       $actor.Skills.stealth * 0.5 + $actor.equipment.gloves * 0.3,
+                       0),
                    effect: Create(item with Physical + Decayable, { location = $location, traces = $actor, time = now })
 }
 

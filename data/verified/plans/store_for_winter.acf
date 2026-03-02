@@ -10,7 +10,7 @@ plan economic.store_for_winter [economic, survival] {
 
         assess:    do Sense.Structured { target = $storehouse }
         gather:    do Transfer.Direct { source = $fields }
-            prob = sigmoid(self.skills.gathering - 10)
+            prob = resolve_conflict(self.Skills.gathering, 10, 0)
         process:   do Modify.Indirect { target = $food, objects = [salt, jars] }
         store:     do Transfer.Direct { item = $food, to = $storehouse }
         check:     wait $storehouse.food > winter_duration * self.consumption_rate
