@@ -339,35 +339,40 @@ function attribution_risk(investigator, evidence_item) [RESOLUTION, planned] {
 }
 
 # ── KNOWLEDGE: worldmodel queries ────────────────────────────────
-# Each agent has a worldmodel = filtered ground truth + stored overrides.
-# The worldmodel IS a world state -- just a subjective, filtered one.
+# PLANS NEVER ACCESS GROUND TRUTH DIRECTLY. Every actor queries its
+# own filtered worldmodel. Ground truth is ENGINE-INTERNAL — used
+# only in SIMULATE context for actual resolution. Plans always run in
+# ESTIMATE context against the actor's worldmodel.
 #
-# self.knows(X) uses the SAME query syntax as world state queries,
-# just targeting the agent's worldmodel instead of ground truth.
-# No separate "knowledge query language."
+# self.knows(X) is the single unified query interface. There is NO
+# separate self.sense(X). Current sensed state and accumulated memory
+# are both in self.knows — the distinction is engine-internal.
 #
-#   Engine (world truth):  $vault.locks.count → 3
-#   Agent (worldmodel):    self.knows($vault.locks.count) → 3 (if perceived)
+# How the worldmodel is built (engine-internal, not a query concept):
+#   Present perception: sense filter writes current-tick observations
+#     directly into worldmodel. Time-stamped, decays with staleness.
+#   Memory: older perception entries; decay rate per fact type.
+#   Overrides: second-hand info, deductions, corrections. Stored thin
+#     (reference GT when correct; divergent value only when wrong).
+#     Overrides take priority over base perception when both exist.
 #
-# Base layer (live query, no storage): world state + sim history,
-# filtered by senses, alertness, memory, co-location, detection_risk,
-# time decay. Deterministic replay from sparse keyframes.
-#
-# Override layer (stored, thin): second-hand info, deductions,
-# corrections. Reference GT when correct (pointer + confidence meta),
-# divergent value only when belief is wrong. Overrides take priority.
+# Plans write needs {} and outcomes {} using self.knows() only.
+# The engine SIMULATE run will resolve against ground truth; if the
+# worldmodel was wrong, the action fails or produces unexpected results.
 #
 # Call syntax: self.knows(fact), self.worldmodel($node).field
 # Engine signature: knows(agent, fact), worldmodel(agent, node)
 
 function knows(agent, fact) [KNOWLEDGE, core] {
-    # Same query syntax as world state, targeting agent's worldmodel.
-    # Checks base (filtered GT) then overrides. Overrides take priority.
+    # Unified worldmodel query. Returns true if the fact is in the agent's
+    # worldmodel — from current perception, memory, or override layer.
+    # This is the ONLY query interface plans use. No separate self.sense().
+    # Current perceived state = self.knows(X) for recently-stamped facts.
+    # Stale facts decay in weight but remain queryable with lower confidence.
     returns: bool
     resolves_to: agent.worldmodel.contains(fact)
-    notes: the fundamental knowledge check, gates almost everything.
-           identical expressions work on world truth (engine) and
-           worldmodel (planner) -- mismatch = plan failure at runtime.
+    notes: plans always use this. engine uses ground truth for SIMULATE
+           resolution. mismatch = plan failure or unexpected outcome at runtime.
 }
 
 function worldmodel(agent, node) [KNOWLEDGE, core] {
@@ -509,7 +514,12 @@ function execute_action(actor, action_type, approach, target, params) [ENGINE, c
     #
     # Pipeline (in order):
     #   1. PRE-FLIGHT
-    #      — Validate needs {} against current world state
+    #      — Validate needs {} against actor.worldmodel (not ground truth)
+    #      — Call consider_action() to get ActionEstimate from worldmodel
+    #      — Call drives_permit(actor, estimate): if false, interrupt plan and
+    #        activate the relevant agent role behavior instead (self-preservation,
+    #        urgent hunger/fatigue). The agent role is the shared low-level gate
+    #        for all agents. See data/verified/roles/agent.acf.
     #      — Resolve effective_secrecy(actor): ONE ROLL, cached for this action tick
     #      — Compute effective_noise(actor) from cached secrecy
     #   2. ROUTE to action sub-handler (7x3 table):
@@ -522,16 +532,79 @@ function execute_action(actor, action_type, approach, target, params) [ENGINE, c
     #      — execute_sense(actor, approach, target, params, secrecy_roll)
     #      Sub-handlers receive the resolved secrecy_roll, not the formula.
     #      They use it in any internal resolution (e.g., combat_chance, lockpick_chance).
+    #      All internal lookups use ground truth — this is the SIMULATE context.
     #   3. POST-ACTION (applied regardless of sub-handler outcome):
     #      — generate_evidence(actor, action, location) using cached secrecy_roll
     #      — Run detection_risk(actor, observer) for each co-located observer
+    #        (writes results into observer worldmodel via sense filter)
     #      — Apply world state delta from sub-handler
     #      — Apply costs: time += action.duration, Vitals.Stamina -= action.exertion
     #      — Update sim history (ground truth, replayable)
     returns: world_state_delta
     notes: secrecy_roll is the single authoritative effective_secrecy value for this tick.
-           All resolution within the action — sub-handler, evidence, detection — reads it.
-           This ensures one action produces one coherent stealth performance.
+           Pre-flight uses worldmodel (ESTIMATE). Sub-handlers use ground truth (SIMULATE).
+           Mismatch between the two is what causes plan failures and surprises.
+}
+
+function consider_action(actor, action_type, approach, target, params) [ENGINE, core] {
+    # ESTIMATE context: evaluates an action candidate before committing.
+    # Called by the planner when scoring method candidates, and by execute_action
+    # pre-flight before every execution. ALL lookups use actor.worldmodel only —
+    # no ground truth access. Returns ActionEstimate for planner and drives_permit().
+    #
+    # Returns ActionEstimate {
+    #   success_prob:      P(primary goal state achieved), from worldmodel estimates
+    #   secrecy_estimate:  effective_secrecy_estimate(actor) — deterministic, no roll
+    #   detection_prob:    P(detected by known nearby observers in worldmodel)
+    #   evidence_prob:     P(persistent evidence left, from evidence_risk estimate)
+    #   costs:             { time, stamina, resources } — estimated from worldmodel
+    #   goal_deltas:       [fact, prob] — expected world state changes
+    #   drive_impact:      { danger_score, stamina_drain, hunger_cost, ... }
+    # }
+    #
+    # The planner calls this repeatedly to compare methods before selecting one.
+    # execute_action calls it once in pre-flight, feeds result to drives_permit().
+    returns: ActionEstimate
+    notes: secrecy_estimate is deterministic (no roll) — point estimate for comparison.
+           Actual secrecy roll happens in execute_action after drives_permit passes.
+           detection_prob uses actor.worldmodel.known_observers, not all observers.
+           Planner uncertainty about observers = risk underestimate = plan surprise.
+}
+
+function effective_secrecy_estimate(actor) [DERIVED, core] {
+    # Deterministic point estimate of effective_secrecy for planning and consider_action.
+    # No random roll — the planner needs a consistent value for method comparison.
+    # Actual rolled value resolved at execute_action() time.
+    # Uses actor.worldmodel for location factors — no ground truth access.
+    returns: float
+    resolves_to: actor.Skills.stealth
+               + actor.modifier.stealth * 20
+               + actor.equipment.stealth_bonus
+               + actor.worldmodel.location.Lighting.concealment * 10
+               + actor.worldmodel.location.cover * 5
+}
+
+function drives_permit(actor, estimate) [DERIVED, core] {
+    # True if proceeding with this action is consistent with actor's active drive state.
+    # Called by execute_action pre-flight with the ActionEstimate from consider_action().
+    # Also callable by the planner to pre-filter method candidates before scoring.
+    #
+    # Hard vetoes (return false, plan interrupted, agent role behavior activated):
+    #   estimate.drive_impact.danger_score > actor.Drives.risk_tolerance
+    #   estimate.costs.stamina > actor.Vitals.Stamina
+    #   estimate.drive_impact.requires_aggression AND actor.Drives.aggression < threshold
+    #
+    # Soft drive violations (don't block but trigger competing behaviors in agent role):
+    #   actor.Drives.hunger > 80 → eat behavior inserted at priority 70
+    #   actor.Drives.fatigue > 80 → rest behavior inserted at priority 60
+    #   See data/verified/roles/agent.acf for complete threshold table.
+    #
+    # Hard veto = engine interrupts current plan, activates agent role behavior.
+    # Soft veto = agent role behavior competes at elevated priority next tick.
+    # The agent role is the shared low-level behavioral gate for ALL agents.
+    returns: bool
+    notes: specialised roles may tighten or loosen thresholds by overriding
+           the relevant agent role behaviors. e.g. soldier role raises risk_tolerance.
 }
 
 function execute_move(actor, approach, target, params, secrecy_roll) [ENGINE, core] {

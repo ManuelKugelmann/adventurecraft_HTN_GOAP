@@ -1,0 +1,87 @@
+role agent [universal, L1] {
+
+    # ── Base agent role ───────────────────────────────────────────────
+    #
+    # Present on every entity with a Drives trait. All specialized roles
+    # inherit from this: role guard : agent, role farmer : agent, etc.
+    # Defines the universal drive-triggered preemption behaviors that compete
+    # with goal plans. Higher urgency = higher priority = may preempt current plan.
+    #
+    # drives_permit() checks these thresholds at execute_action pre-flight.
+    # Hard vetoes interrupt the current plan and activate the relevant behavior here.
+    # Soft violations insert competing behaviors at elevated priority next tick.
+    #
+    # Drive thresholds (0 = none, 100 = critical):
+    #   < 20  = critical — hard veto on most actions, overrides everything
+    #   20-40 = urgent  — elevated priority, competes with current goal
+    #   40-80 = present — managed by normal plan scheduling
+    #   > 80  = satiated — suppressed
+    #
+    # Priority scale context (from guard role):
+    #   patrol = 5, alert = 45, defend = 50, arrest = 40
+    #   Agent preemptions slot above goal priorities for survival urgency.
+
+    # ── Survival (hard veto range — highest priority) ─────────────────
+
+    flee_lethal_threat: when estimate.drive_impact.danger_score > self.Drives.risk_tolerance
+                            AND NOT capable(self, combat),
+                        do flee_danger { threat = nearest_threat(self) },
+                        priority = 95
+
+    tend_wounds_critical: when self.Vitals.Health < 20,
+                          do tend_wound { target = self },
+                          priority = 90
+
+    # ── Urgent survival (urgent range — preempts most goal plans) ─────
+
+    drink_urgent: when self.Drives.thirst > 80,
+                  do drink { source = nearest(water) },
+                  priority = 75
+
+    eat_urgent: when self.Drives.hunger > 80,
+                do eat { source = nearest(food) },
+                priority = 70
+
+    seek_shelter_urgent: when self.Drives.exposure > 80
+                             AND weather.severity > 3,
+                         do find_shelter { region = self.location },
+                         priority = 68
+
+    tend_wound_urgent: when self.Vitals.Health < 40,
+                       do tend_wound { target = self },
+                       priority = 65
+
+    rest_urgent: when self.Drives.fatigue > 80,
+                 do rest { location = self.location },
+                 priority = 60
+
+    # ── Present (soft range — competes at low priority, rarely preempts) ─
+
+    drink_present: when self.Drives.thirst > 50,
+                   do drink { source = nearest(water) },
+                   priority = 35
+
+    eat_present: when self.Drives.hunger > 50,
+                 do eat { source = nearest(food) },
+                 priority = 30
+
+    rest_present: when self.Drives.fatigue > 60,
+                  do rest { location = self.location },
+                  priority = 20
+
+    # ── Awareness baseline (always-on at lowest priority) ─────────────
+    # Keeps agent's worldmodel reasonably current.
+    # May be suppressed by specialized roles with higher-priority Sense behaviors.
+
+    ambient_awareness: when self.Drives.alertness > 20,
+                       do Sense.Indirect { target = nearby(self, 20) },
+                       priority = 3
+
+}
+
+_provenance {
+    sources = [{ type = design_pattern, id = drive_architecture, confidence = 0.9 }]
+    model = seed
+    verified = false
+    reviewer = pending
+}
