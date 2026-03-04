@@ -19,6 +19,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          cache: pip
 
       - name: Install dependencies
         run: pip install -r requirements.txt
@@ -39,6 +40,16 @@ jobs:
       - name: Validate
         if: steps.gaps.outputs.count != '0'
         run: python tools/validate.py data/verified/
+
+      - name: Ensure counter label exists
+        if: steps.gaps.outputs.count != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create "counter" \
+            --color "#1d76db" \
+            --description "Automated counter-plan PR" \
+            2>/dev/null || true
 
       - name: Create PR
         if: steps.gaps.outputs.count != '0'
@@ -62,15 +73,13 @@ jobs:
           git commit -m "data: generate counter-plans for $CHANGED files"
           git push -u origin "$BRANCH"
 
-          gh label create "counter" \
-            --color "#e4e669" \
-            --description "Auto-generated counter-plan PR" \
-            2>/dev/null || true
-
           gh pr create \
             --title "Counters: $(date +%Y-%m-%d)" \
-            --body "Auto-generated counter-plans for plans missing them.
+            --body "$(cat <<EOF
+Auto-generated counter-plans for plans missing them.
 
-**Files patched:** $CHANGED
-**Validation:** ✅ passed" \
+**Files patched:** ${CHANGED}
+**Validation:** passed
+EOF
+)" \
             --label counter

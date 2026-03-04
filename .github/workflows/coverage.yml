@@ -17,6 +17,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          cache: pip
 
       - name: Install dependencies
         run: pip install -r requirements.txt
@@ -26,9 +27,18 @@ jobs:
         run: |
           REPORT=$(python tools/coverage.py)
           echo "$REPORT"
-          
+
           # Write to file for issue body
           echo "$REPORT" > /tmp/coverage.txt
+
+      - name: Ensure coverage label exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create "coverage" \
+            --color "#0e8a16" \
+            --description "Coverage report" \
+            2>/dev/null || true
 
       - name: Create/update issue
         env:
@@ -36,10 +46,13 @@ jobs:
         run: |
           TITLE="Coverage Report $(date +%Y-%m-%d)"
           BODY=$(cat /tmp/coverage.txt)
-          
+
           gh issue create \
             --title "$TITLE" \
-            --body "\`\`\`
-          $BODY
-          \`\`\`" \
+            --body "$(cat <<EOF
+\`\`\`
+${BODY}
+\`\`\`
+EOF
+)" \
             --label coverage
