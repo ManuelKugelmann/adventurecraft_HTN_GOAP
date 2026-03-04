@@ -33,7 +33,6 @@ plan gain_entry [access, universal] {
         outcomes {
             NOT locked($target), prob = 0.9
             $target.Physical.Integrity -= 50
-            visible(self, nearby(self, 30)), prob = detection_risk(self, nearby(self, 30))
             time += 3
         }
     }
@@ -43,7 +42,7 @@ plan gain_entry [access, universal] {
         wait:  do Sense.Indirect { target = $target }
         slip:  do Move.Direct { destination = $target }
         outcomes {
-            co_located(self, $target.interior), prob = 1 - detection_risk(self, nearby($target, 15))
+            co_located(self, $target.interior), prob = 0.8
             time += 15
         }
     }

@@ -119,8 +119,27 @@ The planner auto-inserts sub-plans when `needs` are unmet (e.g. missing item, mi
 Trait field paths: `Vitals.Health`, `entity.path`
 Built-in functions: see `schema/utility_functions.acf` for full catalog
 Core functions: `distance(A, B)`, `accessible(self, node)`, `co_located(a, b)`, `visible(a, b)`, `self.knows(X)`
+Planning functions: `consider_action(self, Action.Approach, target)`, `consider_plan(self, method)`
 Math: `sigmoid(x)`, `min()`, `max()`, `abs()`, `count()`, `sum()`
 Operators: `+ - * / < > == != >= <= AND OR NOT`
+
+### Local variable bindings
+
+`$var = expr` inside `needs {}` or `outcomes {}` binds a local variable.
+Use when a structured-return function result is accessed on multiple fields — call once, read many:
+
+```acf
+needs {
+    $est = consider_action(self, Move.Direct, $dest),
+    $est.detection_prob < 0.15 AND $est.costs.stamina < self.Vitals.Stamina
+}
+```
+
+Scoping rules:
+- A `$name` with `= expr` in the block is a **local** (computed once in scope)
+- A `$name` without `= expr` is a **plan parameter** (must be bound at invocation)
+- Local bindings do not cross block boundaries (`needs` locals invisible in `outcomes`)
+- Bindings must be declared before use within the same block
 
 ## Validation Rules
 
@@ -197,6 +216,35 @@ docs/            spec, summary, source catalog
 - Resolution functions cataloged in `schema/utility_functions.acf` under RESOLUTION category
 
 ## Data Creation Guidelines
+
+### Involuntary reactions vs drive behaviors
+
+Two distinct layers — do NOT mix them:
+
+- **L1 biology rules** (`schema/world_rules.acf` BIOLOGY section): fire unconditionally as
+  physics/biology. `pain_flinch`, `fear_freeze`, `startle`, `collapse`. No will check.
+  No role behavior entry. The engine fires them at the tick level, before the action pipeline.
+- **Drive behaviors** (`data/verified/roles/agent.acf`): involuntary to degree = `priority`.
+  `will_suppressed(actor, priority)` determines if the agent can resist. These are still
+  agent-space — they compete with goal plans via the scheduler.
+
+Do NOT add involuntary reactions to role files. Do NOT add drive behaviors to world_rules.acf.
+
+### Rule-level plans
+
+Some plans are tagged `[fixed]` — they are deterministic, rule-triggered processes, not
+planner-selectable. The engine calls them directly when a world rule fires; they never
+appear in an agent's plan queue. Bleeding out, drug metabolism, disease progression.
+
+```acf
+plan bleed_out [biology, L1, fixed] {
+    # Called by wound_progression rule when bleeding > threshold.
+    # Not voluntary. Not in the planner.
+    ...
+}
+```
+
+The `[fixed]` tag is the marker. Without it, a plan is voluntary and planner-selectable.
 
 ### Composition hierarchy
 

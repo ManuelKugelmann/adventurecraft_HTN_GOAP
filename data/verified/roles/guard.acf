@@ -11,7 +11,7 @@
 # Suspect plans ONLY write self.worldmodel($subject).active_plan.
 # Escalation comes from the role behaviors below reacting to that.
 
-role guard [military] {
+role guard : agent [military] {
     active_when { assigned_shift }
 
     patrol:  when NOT region.threat_detected,

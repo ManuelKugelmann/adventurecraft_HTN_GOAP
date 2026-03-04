@@ -1,4 +1,4 @@
-role farmer [economic, rural] {
+role farmer : agent [economic, rural] {
     active_when { daylight AND NOT holiday }
 
     plow:    when season == spring AND field.state == fallow,

@@ -1,0 +1,45 @@
+plan wait_for_window [utility] {
+
+    # ── Observe-and-yield sub-plan for temporal gating ────────────────
+    # Does one observe tick and exits. Calling plans loop by pairing two methods:
+    # one that gates on the condition, one that observes when the condition fails.
+    # The planner re-evaluates both each tick; loop exits when the guarded method
+    # becomes available.
+    #
+    # Canonical pattern in the calling plan:
+    #
+    #   method try_now {
+    #       needs { consider_action(self, Move.Direct, $dest).detection_prob < 0.15 }
+    #       move: do Move.Direct { destination = $dest }
+    #   }
+    #   method observe_and_retry {
+    #       needs { time_in_plan < $patience }
+    #       wait: do wait_for_window { max_wait = $patience }
+    #       # Planner re-evaluates the full plan next tick.
+    #       # try_now becomes available when detection drops.
+    #   }
+    #
+    # Condition lives in the caller's needs {}, not here — it's not a parameter.
+    # The expression language does not support predicate/lambda parameters.
+    # max_wait is a deadline hint; drives_permit() checked each tick enforces
+    # the real patience limit (hard veto exits the loop regardless of max_wait).
+
+    needs { $max_wait > 0 }
+
+    method observe {
+        observe: do Sense.Indirect { target = nearby(self, 30) }
+    }
+
+    outcomes {
+        time += 1
+        self.Vitals.Stamina -= 0.02
+    }
+
+}
+
+_provenance {
+    sources = [{ type = design_pattern, id = temporal_gating, confidence = 0.9 }]
+    model = seed
+    verified = false
+    reviewer = pending
+}

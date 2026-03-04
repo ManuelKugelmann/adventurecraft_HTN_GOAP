@@ -22,7 +22,7 @@ plan flee_danger [survival, combat] {
         find_cover: do Sense.Direct { target = self.location }
         conceal:    do Move.Direct { destination = $cover }
         outcomes {
-            NOT visible(self, $threat), prob = 1 - detection_risk(self, $threat)
+            concealed(self), prob = 0.75
             time += 5
         }
     }

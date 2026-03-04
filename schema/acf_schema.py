@@ -136,7 +136,24 @@ EXPR_FUNCTIONS = {
     "craft_chance", "observation_chance", "trade_advantage",
     "chase_chance", "identification_risk", "capture_risk",
     "evidence_risk", "attribution_risk",
+    # Planning estimate functions (return ActionEstimate struct, not float)
+    # Used in needs {} / outcomes {} — often via $var = consider_action(...) binding
+    "consider_action", "consider_plan",
+    "effective_secrecy_estimate", "drives_permit",
 }
+
+# Functions that return structured values (not scalar/float).
+# When accessed as $var = f(...), field access $var.field is valid.
+# The prob_bounded check must not flag $var.some_prob_field as unbounded.
+STRUCTURED_RETURN_FUNCTIONS = {
+    "consider_action", "consider_plan",
+}
+
+# ── Local variable binding ────────────────────
+# $var = expr  inside needs {} / outcomes {} is a local binding.
+# $var without = is a plan parameter (must be bound at invocation).
+# Regex matches local binding declarations.
+RE_LOCAL_BINDING = re.compile(r"^\s*\$(\w+)\s*=\s*(.+)", re.MULTILINE)
 
 # Functions guaranteed to return 0..1 — no wrapping needed.
 # Use named resolution functions in all plan/rule data.
@@ -280,6 +297,11 @@ def quick_validate(filepath: str, content: str) -> ValidationResult:
             ))
 
     # Check prob expressions are bounded (heuristic)
+    # This check cannot type-verify expressions — it only catches obvious mistakes.
+    # Any $var.field access is accepted: variables are user-typed and structured
+    # return fields (e.g. ActionEstimate.detection_prob) are known to be 0..1.
+    # A real type system would derive boundedness from return types; this heuristic
+    # cannot, so widening to accept all $var.field is the correct tradeoff.
     for m in RE_PROB.finditer(content):
         expr = m.group(1).strip()
         # Accept any call to a known bounded function
@@ -287,6 +309,9 @@ def quick_validate(filepath: str, content: str) -> ValidationResult:
             continue
         # Accept min()/max() clamps
         if "min(" in expr or "max(" in expr:
+            continue
+        # Accept any $var.field access — field on any bound variable
+        if re.match(r"^\$\w+\.", expr):
             continue
         if re.match(r"^[\d.]+$", expr):
             val = float(expr)

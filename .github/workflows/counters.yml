@@ -46,22 +46,31 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           BRANCH="counters-$(date +%Y%m%d-%H%M)"
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
           git checkout -b "$BRANCH"
           git add data/verified/
-          
+
           CHANGED=$(git diff --cached --name-only | wc -l)
           if [ "$CHANGED" -eq 0 ]; then
             echo "No counter changes."
             exit 0
           fi
-          
+
           git commit -m "data: generate counter-plans for $CHANGED files"
-          git push origin "$BRANCH"
-          
+          git push -u origin "$BRANCH"
+
+          gh label create "counter" \
+            --color "#e4e669" \
+            --description "Auto-generated counter-plan PR" \
+            2>/dev/null || true
+
           gh pr create \
             --title "Counters: $(date +%Y-%m-%d)" \
             --body "Auto-generated counter-plans for plans missing them.
 
-          **Files patched:** $CHANGED
-          **Validation:** ✅ passed" \
+**Files patched:** $CHANGED
+**Validation:** ✅ passed" \
             --label counter

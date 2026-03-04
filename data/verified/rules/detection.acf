@@ -1,76 +1,57 @@
 rule detection [social, L3] {
 
-    # Secrecy resolution: determines if an actor performing an action
-    # is noticed by nearby observers. Runs per-action as a world rule.
-    # Plans declare "visible(self, observers)" as an outcome;
-    # this rule resolves the actual probability.
+    # ── Sense filter — direct, real-time perception (sync path) ──────
+    #
+    # These rules ARE the engine's sense filter. They run automatically
+    # after every action (and during idle). Results write to the observer's
+    # sense-filtered worldmodel, which then feeds their knowledge worldmodel.
+    # Plans do NOT trigger or declare these — they are world-side processes.
+    #
+    # actor_strength IS effective_secrecy(actor) — the engine-rolled value cached
+    # for this action tick. All observers check against the same roll; the actor
+    # either has a good stealth moment or doesn't, and every observer experiences
+    # that uniformly. No separate roll per observer.
+    #
+    # Evidence generation (the async path) is handled by generate_evidence() called
+    # automatically by the engine, and by rules in data/verified/rules/evidence.acf.
 
-    spot_by_guard: when observer.role == guard
+    spot_by_guard: when observer.role.has(guard_training)
                        AND co_located(observer, $actor.location)
                        AND NOT concealed($actor),
-                   prob = resolve_conflict(
-                       observer.Skills.observation,
-                       $actor.Skills.stealth + $actor.equipment.stealth_bonus,
-                       $action.noise * 0.5 - $location.Lighting.concealment * 0.3),
+                   prob = detection_risk($actor, observer),
                    effect: visible($actor, observer)
 
-    spot_by_nearby: when co_located(observer, $actor.location)
-                        AND NOT concealed($actor)
-                        AND observer != $actor,
-                    prob = resolve_conflict(
-                        observer.Skills.observation * 0.5,
-                        $actor.Skills.stealth + $actor.equipment.stealth_bonus,
-                        $action.noise * 0.3 - $location.Lighting.concealment * 0.3)
-                        * 0.5,
-                    effect: visible($actor, observer)
+    spot_by_bystander: when co_located(observer, $actor.location)
+                           AND NOT concealed($actor)
+                           AND observer != $actor
+                           AND NOT observer.role.has(guard_training),
+                       prob = detection_risk($actor, observer) * 0.4,
+                       effect: visible($actor, observer)
 
-    hear_noise: when distance(observer, $actor) < $action.noise * 10
-                    AND observer.Skills.observation > 5,
-                prob = resolve_conflict(
-                    $action.noise * 0.3,
-                    distance(observer, $actor) * 0.1 + $location.ambient_noise * 0.2,
-                    0),
-                effect: observer.alert = true
+    hear_noise: when co_located(observer, $actor.location)
+                    OR distance(observer, $actor) < effective_noise($actor) * 10,
+                prob = detection_risk($actor, observer),
+                effect: observer.modifier.awareness += 1
 
-    # ── Identification (chained from detection) ──────────────────
-    # Detection answers "is someone there?" — identification answers
-    # "who is it?". Separate resolution: an actor can be spotted but
-    # not recognized (hooded figure at night, unknown face in crowd).
+    # ── Identification ────────────────────────────────────────────────
+    # "Who is it?" — chained from detection. Separate resolution because
+    # you can be spotted without being recognized (hooded figure, dark room).
+    # Familiarity dominates: hard to fool someone who knows your face.
 
     identify_known: when visible($actor, observer)
                         AND edge(observer, $actor, familiarity) > 0.3,
-                    prob = resolve_conflict(
-                        edge(observer, $actor, familiarity) * 30 + observer.Skills.observation * 0.5,
-                        $actor.equipment.disguise_quality + distance(observer, $actor) * 0.1,
-                        0),
-                    effect: observer.knows(identity_of($actor))
+                    prob = identification_risk($actor, observer),
+                    effect: observer.worldmodel.gains(identity_of($actor))
 
     identify_disguised: when visible($actor, observer)
                             AND $actor.has(Disguised),
-                        prob = resolve_conflict(
-                            observer.Skills.observation + edge(observer, $actor, familiarity) * 20,
-                            $actor.Skills.deception + $actor.equipment.disguise_quality,
-                            0),
-                        effect: observer.knows(identity_of($actor))
+                        prob = identification_risk($actor, observer),
+                        effect: observer.worldmodel.gains(identity_of($actor))
 
-    # ── Evidence (long-term detection) ───────────────────────────
-    # Every physical action may leave traces as ordinary items.
-    # Evidence nodes are items with Physical + Decayable traits.
-    # Subject to normal rules: rain decays them, fire destroys them,
-    # cover_tracks plan Destroys them. No special forensics system.
-    # Investigators find them via track_following (skill check on item).
-
-    evidence_left: when $actor.action.completed
-                       AND $action.physical_contact > 0,
-                   prob = resolve_conflict(
-                       $location.surface.track_retention + $action.physical_contact * 0.5,
-                       $actor.Skills.stealth * 0.5 + $actor.equipment.gloves * 0.3,
-                       0),
-                   effect: Create(item with Physical + Decayable, { location = $location, traces = $actor, time = now })
 }
 
 _provenance {
-    sources = [{ type = design_pattern, id = stealth_detection_system, confidence = 0.8 }]
+    sources = [{ type = design_pattern, id = stealth_detection_system, confidence = 0.9 }]
     model = seed
     verified = true
     reviewer = manu

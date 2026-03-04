@@ -1,0 +1,87 @@
+role agent [universal, L1] {
+
+    # ── Base agent role ───────────────────────────────────────────────
+    #
+    # Present on every entity with a Drives trait. All specialized roles
+    # inherit from this: role guard : agent, role farmer : agent, etc.
+    #
+    # All drive-triggered behaviors are involuntary to some degree.
+    # Degree of involuntariness = priority.
+    # will_suppressed(actor, priority) determines if the agent can resist:
+    #   will_strength(actor) >= priority → agent can suppress the urge
+    #   will_strength(actor) <  priority → behavior fires compulsorily
+    #
+    # Involuntary REACTIONS (startle, pain_flinch, fear_freeze, collapse) are
+    # NOT here. They are L1 biology world rules — they fire unconditionally,
+    # regardless of will, because they are physics/biology not agent behavior.
+    # See schema/world_rules.acf BIOLOGY section.
+    #
+    # Drive scale: deprivation. 0 = fully satisfied, 100 = critical deprivation.
+    #   > 80 = critical  — will threshold so high most agents cannot suppress
+    #   60-80 = urgent   — elevated priority, requires trained will to push through
+    #   30-60 = present  — manageable, moderate will suppresses easily
+    #   < 30  = low      — easily ignored
+
+    # ── Overwhelming (priority 90-95, near-impossible to suppress) ────
+
+    flee_lethal_threat: when self.Vitals.Health < 20
+                            AND nearby(self, 20).any(hostile)
+                            AND NOT capable(self, combat),
+                        do flee_danger { threat = nearby(self, 20).filter(hostile).closest },
+                        priority = 95
+
+    tend_wounds_critical: when self.Vitals.Health < 20,
+                          do tend_wound { target = self },
+                          priority = 90
+
+    # ── Urgent (priority 60-75, trained will can suppress) ────────────
+
+    drink_urgent: when self.Drives.thirst > 80,
+                  do drink { source = nearby(self, 50).filter(type = water).closest },
+                  priority = 75
+
+    eat_urgent: when self.Drives.hunger > 80,
+                do eat { source = nearby(self, 50).filter(Edible).closest },
+                priority = 70
+
+    seek_shelter_urgent: when self.Drives.exposure > 80
+                             AND weather.severity > 3,
+                         do find_shelter { region = self.location },
+                         priority = 68
+
+    tend_wound_urgent: when self.Vitals.Health < 40,
+                       do tend_wound { target = self },
+                       priority = 65
+
+    rest_urgent: when self.Drives.fatigue > 80,
+                 do rest { location = self.location },
+                 priority = 60
+
+    # ── Present (priority 20-35, easily suppressed by moderate will) ──
+
+    drink_present: when self.Drives.thirst > 60,
+                   do drink { source = nearby(self, 50).filter(type = water).closest },
+                   priority = 35
+
+    eat_present: when self.Drives.hunger > 60,
+                 do eat { source = nearby(self, 50).filter(Edible).closest },
+                 priority = 30
+
+    rest_present: when self.Drives.fatigue > 60,
+                  do rest { location = self.location },
+                  priority = 20
+
+    # ── Awareness baseline (always-on, suppressed by nearly any will) ─
+
+    ambient_awareness: when self.Drives.alertness > 20,
+                       do Sense.Indirect { target = nearby(self, 20) },
+                       priority = 3
+
+}
+
+_provenance {
+    sources = [{ type = design_pattern, id = drive_architecture, confidence = 0.9 }]
+    model = seed
+    verified = false
+    reviewer = pending
+}
