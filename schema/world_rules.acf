@@ -72,6 +72,54 @@ rule_spec wound_progression [BIOLOGY, planned] {
     implemented: TBD
 }
 
+rule_spec pain_flinch [BIOLOGY, core] {
+    # Damage receipt triggers involuntary motor interruption. Biology — nervous
+    # system response. Fires unconditionally; no will check; not a role behavior.
+    # Rule-level fixed process: interrupts current action for one tick.
+    # Severity scales with damage magnitude.
+    inputs: entity.damage_received
+    resolution: fires when damage_received > 0
+    effect: interrupt_action(entity, duration = 1), severity = damage_received * 0.5
+    implemented: TBD
+    notes: severity drives animation/haptic feedback only. The interrupt fires
+           regardless of will or drive state. Distinguish from flee_danger (voluntary
+           role behavior) and tend_wound (drive behavior) — those are agent choices.
+}
+
+rule_spec fear_freeze [BIOLOGY, planned] {
+    # Acute fear response when facing overwhelming mortal threat.
+    # Biological stress reaction (freeze response). Not a choice, not suppressible.
+    # High-willpower agents are NOT immune — they re-engage the planner faster
+    # after the freeze resolves, not suppress it. The freeze fires; training
+    # shortens effective downtime by reducing resume latency.
+    inputs: entity.Drives.fear, combat_chance($threat, entity)
+    resolution: fires when combat_chance($threat, entity) > 0.85
+                         AND entity.Drives.fear > 60
+    effect: interrupt_action(entity, duration = 2)
+    implemented: TBD
+}
+
+rule_spec startle [BIOLOGY, planned] {
+    # Sudden, unexpected sensory event triggers brief orienting interruption.
+    # Autonomic orienting reflex. Attention reorients to source; action paused.
+    # Whether the agent then ACTS on the event is role behavior territory.
+    inputs: sudden_event in entity.perception_range
+    resolution: fires when sudden_event AND NOT entity.knows(performed(event.source, any))
+    effect: interrupt_action(entity, duration = 0.5)
+    implemented: TBD
+    notes: Guards with high drive.alertness have lower interrupt duration (more habituated).
+           Do NOT model this as a will check — will is not relevant to orienting reflexes.
+}
+
+rule_spec collapse [BIOLOGY, core] {
+    # Entity cannot remain upright at near-zero health.
+    # Physics + biology. Absolute. No will, no suppression.
+    inputs: entity.Vitals.Health
+    resolution: fires when entity.Vitals.Health < 10
+    effect: entity.Physical.state = collapsed, interrupt_action(entity, duration = incapacitated)
+    implemented: TBD
+}
+
 rule_spec disease [BIOLOGY, candidate] {
     # Infection chance from unsafe water, untreated wounds, proximity to sick.
     inputs: entity.Vitals, exposure source

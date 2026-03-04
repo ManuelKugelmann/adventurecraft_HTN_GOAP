@@ -6,25 +6,23 @@ role agent [universal, L1] {
     # inherit from this: role guard : agent, role farmer : agent, etc.
     #
     # All drive-triggered behaviors are involuntary to some degree.
-    # Degree of involuntariness = priority (polled) or strength (event-triggered).
-    # will_suppressed(actor, threshold) determines if the agent can resist:
-    #   will_strength(actor) >= threshold → agent can suppress the urge
-    #   will_strength(actor) <  threshold → behavior fires compulsorily
+    # Degree of involuntariness = priority.
+    # will_suppressed(actor, priority) determines if the agent can resist:
+    #   will_strength(actor) >= priority → agent can suppress the urge
+    #   will_strength(actor) <  priority → behavior fires compulsorily
     #
-    # Polled behaviors use `priority` as both the scheduler weight and will threshold.
-    # Event-triggered behaviors use `strength = expr` (dynamic, scaled by event magnitude).
-    # Goal plan steps have no will check — they are fully voluntary.
+    # Involuntary REACTIONS (startle, pain_flinch, fear_freeze, collapse) are
+    # NOT here. They are L1 biology world rules — they fire unconditionally,
+    # regardless of will, because they are physics/biology not agent behavior.
+    # See schema/world_rules.acf BIOLOGY section.
     #
     # Drive scale: deprivation. 0 = fully satisfied, 100 = critical deprivation.
     #   > 80 = critical  — will threshold so high most agents cannot suppress
     #   60-80 = urgent   — elevated priority, requires trained will to push through
     #   30-60 = present  — manageable, moderate will suppresses easily
-    #   < 30  = low      — easily ignored, only suppressed if will is very low
-    #
-    # Priority scale context (from guard role):
-    #   patrol = 5, alert = 45, defend = 50, arrest = 40
+    #   < 30  = low      — easily ignored
 
-    # ── Overwhelming (priority 90-100, near-impossible to suppress) ────
+    # ── Overwhelming (priority 90-95, near-impossible to suppress) ────
 
     flee_lethal_threat: when self.Vitals.Health < 20
                             AND nearby(self, 20).any(hostile)
@@ -36,31 +34,7 @@ role agent [universal, L1] {
                           do tend_wound { target = self },
                           priority = 90
 
-    # Event-triggered: strength scales with event magnitude, not a fixed level.
-    # An agent with very high willpower may suppress a minor blow (strength 5)
-    # but not a devastating hit (strength 80+).
-
-    collapse: when self.Vitals.Health < 10,
-              do incapacitate { },
-              strength = 100
-
-    fear_freeze: when visible(self, $threat)
-                     AND combat_chance($threat, self) > 0.85
-                     AND self.Drives.fear > 60,
-                 do freeze { target = $threat, duration = 2 },
-                 strength = combat_chance($threat, self) * 80
-                            + self.Drives.fear * 0.3
-
-    pain_flinch: when damage_received > 0,
-                 do interrupt_current_action { duration = 1 },
-                 strength = damage_received * 0.5
-
-    startle: when sudden_event(nearby(self, 10))
-                 AND NOT self.knows(performed(event.source, any)),
-             do interrupt_current_action { },
-             strength = 20
-
-    # ── Urgent (priority 60-80, trained will can suppress) ────────────
+    # ── Urgent (priority 60-75, trained will can suppress) ────────────
 
     drink_urgent: when self.Drives.thirst > 80,
                   do drink { source = nearby(self, 50).filter(type = water).closest },

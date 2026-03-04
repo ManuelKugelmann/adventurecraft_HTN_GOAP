@@ -503,23 +503,25 @@ function will_strength(actor) [DERIVED, core] {
 }
 
 function will_suppressed(actor, threshold) [DERIVED, core] {
-    # Universal check: true if the actor's will is strong enough to suppress
-    # a drive behavior with the given threshold (priority or strength).
-    # false → behavior fires compulsorily, interrupts current action.
-    # true  → agent feels the urge but can choose to act through it.
+    # True if the actor's will is strong enough to suppress a drive behavior
+    # with the given priority threshold.
+    # false → behavior fires compulsorily (agent is driven to act).
+    # true  → agent feels the urge but can choose not to act on it.
     #
-    # Used for all drive-triggered behaviors in execute_action pre-flight:
-    #   polled behaviors   → threshold = behavior.priority (will_suppressed called
-    #                        per active behavior each tick; unsuppressed ones fire)
-    #   event-triggered    → threshold = behavior.strength (evaluated at event time;
-    #                        dynamic — pain_flinch strength scales with damage received)
-    #   goal plan steps    → no will check — fully voluntary
+    # Applies ONLY to drive-triggered role behaviors (agent.acf).
+    # Does NOT apply to L1 biology rules (pain_flinch, fear_freeze, startle,
+    # collapse) — those fire unconditionally as world physics/biology.
+    # Will has no bearing on orienting reflexes or structural injury.
     #
-    # Threshold tiers (matching agent.acf priority/strength scale):
-    #   0-20   easily suppressed — most agents ignore ambient urges
-    #   20-60  moderate will required — trained agents push through pain, hunger
-    #   60-80  high will required — only composure-trained agents resist terror/agony
-    #   80+    overwhelming — near-impossible to suppress; collapse at 100 is absolute
+    # Used in execute_action pre-flight: for each active drive behavior,
+    # evaluate will_suppressed(actor, behavior.priority). If false, the
+    # behavior fires instead of the scheduled plan step.
+    #
+    # Threshold tiers (matching agent.acf priority scale):
+    #   0-20   easily suppressed — ambient urges most agents ignore
+    #   20-60  moderate will — trained agents push through hunger, fatigue
+    #   60-80  high will — only composure-trained agents override flee/urgent thirst
+    #   80+    near-impossible to suppress (flee_lethal_threat = 95)
     returns: bool
     formula: will_strength(actor) >= threshold
 }
@@ -555,13 +557,12 @@ function execute_action(actor, action_type, approach, target, params) [ENGINE, c
     #
     # Pipeline (in order):
     #   1. PRE-FLIGHT
-    #      — Will check on all active drive behaviors (polled and event-triggered):
-    #        for each active drive behavior, evaluate will_suppressed(actor, threshold)
-    #        where threshold = behavior.priority (polled) or behavior.strength (event).
-    #        Unsuppressed behaviors fire instead of the intended action.
-    #        All drive behaviors are involuntary to degree = threshold; will is the
-    #        only counter. Event-triggered behaviors (pain_flinch, fear_freeze, etc.)
-    #        preempt first as they arrive from discrete events in the tick.
+    #      — L1 biology rules (pain_flinch, fear_freeze, startle, collapse) fire
+    #        unconditionally before this pipeline runs — they interrupt at the
+    #        tick level, not the action level. See schema/world_rules.acf BIOLOGY.
+    #      — Will check on active drive behaviors: for each active drive behavior
+    #        in agent.acf, evaluate will_suppressed(actor, behavior.priority).
+    #        Unsuppressed behaviors fire instead of the scheduled plan step.
     #        See agent.acf and will_suppressed().
     #      — Validate needs {} against actor.worldmodel (not ground truth)
     #      — Call consider_action() [= consider_plan at depth=0] for ActionEstimate

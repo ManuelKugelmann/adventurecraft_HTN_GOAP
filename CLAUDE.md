@@ -217,6 +217,35 @@ docs/            spec, summary, source catalog
 
 ## Data Creation Guidelines
 
+### Involuntary reactions vs drive behaviors
+
+Two distinct layers — do NOT mix them:
+
+- **L1 biology rules** (`schema/world_rules.acf` BIOLOGY section): fire unconditionally as
+  physics/biology. `pain_flinch`, `fear_freeze`, `startle`, `collapse`. No will check.
+  No role behavior entry. The engine fires them at the tick level, before the action pipeline.
+- **Drive behaviors** (`data/verified/roles/agent.acf`): involuntary to degree = `priority`.
+  `will_suppressed(actor, priority)` determines if the agent can resist. These are still
+  agent-space — they compete with goal plans via the scheduler.
+
+Do NOT add involuntary reactions to role files. Do NOT add drive behaviors to world_rules.acf.
+
+### Rule-level plans
+
+Some plans are tagged `[fixed]` — they are deterministic, rule-triggered processes, not
+planner-selectable. The engine calls them directly when a world rule fires; they never
+appear in an agent's plan queue. Bleeding out, drug metabolism, disease progression.
+
+```acf
+plan bleed_out [biology, L1, fixed] {
+    # Called by wound_progression rule when bleeding > threshold.
+    # Not voluntary. Not in the planner.
+    ...
+}
+```
+
+The `[fixed]` tag is the marker. Without it, a plan is voluntary and planner-selectable.
+
 ### Composition hierarchy
 
 - **Composite plans** (high-level) reference ONLY sub-plans. No concrete `do Action.Approach` steps.
